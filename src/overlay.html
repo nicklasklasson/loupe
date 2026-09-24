@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Select an area</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  html, body { background: #000; overflow: hidden; cursor: crosshair; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  .hint {
+    position: fixed; top: 22px; left: 50%; transform: translateX(-50%);
+    background: rgba(28, 36, 48, 0.92); color: #fff; border-radius: 7px;
+    padding: 8px 14px; font-size: var(--step-0); pointer-events: none;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.3); white-space: nowrap;
+  }
+  .hint kbd { background: transparent; color: #D8DEE6; border-color: #4A5667; }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="hint" id="hint"></div>
+<script src="overlay.js"></script>
+</body>
+</html>

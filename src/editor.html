@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Loupe editor</title>
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="editor.css">
+</head>
+<body data-tool="arrow">
+  <header class="topbar">
+    <div class="file">
+      <span class="name" id="fileName">Capture</span>
+      <span class="dims" id="dims"></span>
+    </div>
+
+    <div class="props" id="props">
+      <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour" data-prop="color"></div>
+      <label class="prop" data-prop="width">Width <input type="range" id="width" min="1" max="16" step="1"><output id="widthOut"></output></label>
+      <label class="prop" data-prop="size">Size <input type="range" id="size" min="12" max="120" step="2"><output id="sizeOut"></output></label>
+      <label class="prop check" data-prop="fill"><input type="checkbox" id="fill"> Filled</label>
+      <label class="prop" data-prop="strength">Strength <input type="range" id="strength" min="4" max="48" step="2"><output id="strengthOut"></output></label>
+      <label class="prop" data-prop="next">Next number <input type="number" id="next" min="1" max="999"></label>
+      <span class="prop tip" data-prop="croptip">Drag over the part to keep, then press Enter.</span>
+      <span class="prop tip" data-prop="selecttip">Click an annotation to move, resize or restyle it.</span>
+    </div>
+
+    <div class="actions">
+      <button class="quiet" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo">
+        <svg viewBox="0 0 20 20"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 0 1 0 10H9"/></svg>
+      </button>
+      <button class="quiet" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+        <svg viewBox="0 0 20 20"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 0 0 0 10h3"/></svg>
+      </button>
+      <select id="zoom" title="Zoom" aria-label="Zoom">
+        <option value="fit">Fit</option>
+        <option value="0.5">50%</option>
+        <option value="1">100%</option>
+        <option value="2">200%</option>
+      </select>
+      <button id="copy" title="Copy image (Ctrl+C)">Copy</button>
+      <button id="saveAs" title="Save as (Ctrl+Shift+S)">Save as…</button>
+      <button class="primary" id="save" title="Save (Ctrl+S)">Save</button>
+    </div>
+  </header>
+
+  <nav class="rail" id="rail" aria-label="Tools"></nav>
+
+  <main class="stage" id="stage">
+    <div class="wrap" id="wrap">
+      <canvas id="canvas"></canvas>
+      <textarea id="textEditor" spellcheck="false" hidden></textarea>
+    </div>
+    <div class="cropbar" id="cropbar" hidden>
+      <span id="cropSize"></span>
+      <button id="cropCancel">Cancel</button>
+      <button class="primary" id="cropApply">Crop</button>
+    </div>
+  </main>
+
+  <footer class="status">
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <span id="zoomLabel"></span>
+  </footer>
+
+<script src="editor.js"></script>
+</body>
+</html>

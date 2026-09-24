@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Choose a source</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  body { display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 22px 26px 12px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-family: var(--font-display); font-size: var(--step-2); font-weight: 600; margin: 0; flex: 1; }
+  .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-s); overflow: hidden; background: var(--sheet); }
+  .tabs button { border: 0; border-radius: 0; background: transparent; padding: 6px 14px; }
+  .tabs button[aria-selected="true"] { background: var(--ink); color: #fff; }
+  .audio { display: flex; gap: 16px; padding: 0 26px 10px; color: var(--muted); }
+  .audio label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .audio input { accent-color: var(--ink); }
+  .audio label[hidden], .audio[hidden] { display: none; }
+  .grid {
+    flex: 1; overflow: auto; padding: 8px 26px 20px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; align-content: start;
+  }
+  .source { display: flex; flex-direction: column; gap: 7px; padding: 0; border: 0; background: none; text-align: left; }
+  .source .frame {
+    aspect-ratio: 16/10; border-radius: var(--r-m); border: 1px solid var(--line);
+    background: #E4E8ED center / contain no-repeat; width: 100%;
+    display: grid; place-items: center;
+  }
+  .source:hover .frame, .source:focus-visible .frame { border-color: var(--brass); box-shadow: 0 0 0 1px var(--brass); }
+  .source:focus-visible { outline: none; }
+  .source .name { display: flex; align-items: center; gap: 7px; font-weight: 600; min-width: 0; }
+  .source .name img { width: 16px; height: 16px; flex: none; }
+  .source .name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .source.region .frame { background: var(--sheet); border-style: dashed; border-width: 1.5px; }
+  .source.region svg { width: 46px; height: 46px; stroke: var(--brass-ink); fill: none; stroke-width: 1.5; stroke-linecap: round; }
+  footer { padding: 12px 26px 18px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); background: var(--sheet); }
+  .status { color: var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Choose a window</h1>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-type="window" aria-selected="true">Windows</button>
+      <button role="tab" data-type="screen" aria-selected="false">Screens</button>
+    </div>
+  </header>
+  <div class="audio" id="audio" hidden>
+    <label><input type="checkbox" id="mic"> Record microphone</label>
+    <label id="sysWrap"><input type="checkbox" id="sys"> Record computer sound</label>
+  </div>
+  <div class="grid" id="grid"></div>
+  <footer>
+    <span class="status" id="status">Loading…</span>
+    <button id="cancel">Cancel</button>
+  </footer>
+<script src="picker.js"></script>
+</body>
+</html>

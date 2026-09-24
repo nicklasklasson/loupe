@@ -1,0 +1,84 @@
+:root {
+  --paper: #EEF1F4;      /* window surface */
+  --sheet: #F8FAFB;      /* raised panels */
+  --ink: #1C2430;        /* text, primary buttons */
+  --muted: #5B6778;      /* secondary text */
+  --line: #D5DBE2;       /* hairlines */
+  --graphite: #29323E;   /* editor workspace */
+  --brass: #C99230;      /* the loupe: selection, focus, handles */
+  --brass-ink: #86601C;  /* brass that passes contrast on light surfaces */
+  --danger: #C4323A;
+
+  --font: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Cantarell", "Noto Sans", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+
+  --step--1: 12px;
+  --step-0: 13.5px;
+  --step-1: 15px;
+  --step-2: 19px;
+  --step-3: 26px;
+
+  --r-s: 5px;
+  --r-m: 8px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--sheet);
+  border-radius: var(--r-s);
+  padding: 6px 12px;
+  line-height: 1.2;
+}
+button:hover { border-color: #B9C2CD; background: #fff; }
+button:active { transform: translateY(0.5px); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+button.primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+button.primary:hover { background: #2A3646; }
+
+button.quiet { background: transparent; border-color: transparent; }
+button.quiet:hover { background: rgba(28, 36, 48, 0.06); }
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+
+kbd {
+  font-family: var(--font);
+  font-size: var(--step--1);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: #fff;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

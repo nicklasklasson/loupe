@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Recording</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  html, body { background: #1C2430; color: #fff; overflow: hidden; }
+  body { display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; height: 100vh; -webkit-app-region: drag; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #E5484D; flex: none; }
+  .dot.live { animation: pulse 1.4s ease-in-out infinite; }
+  .dot.paused { background: #8792A2; animation: none; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .time { font-variant-numeric: tabular-nums; font-size: var(--step-1); font-weight: 600; min-width: 52px; }
+  .state { color: #B7C1CE; flex: 1; font-size: var(--step--1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button { -webkit-app-region: no-drag; background: #2A3646; border-color: #3B4859; color: #fff; padding: 6px 11px; }
+  button:hover { background: #344256; border-color: #4A5A6E; }
+  button.stop { background: #E5484D; border-color: #E5484D; font-weight: 600; }
+  button.stop:hover { background: #EF5D62; }
+  button.icon { padding: 6px 8px; }
+</style>
+</head>
+<body>
+  <span class="dot" id="dot"></span>
+  <span class="time" id="time">0:00</span>
+  <span class="state" id="state">Getting ready…</span>
+  <button id="pause" disabled>Pause</button>
+  <button class="stop" id="stop" disabled>Stop</button>
+  <button class="icon" id="discard" title="Discard recording" aria-label="Discard recording">✕</button>
+<script src="recorder.js"></script>
+</body>
+</html>
