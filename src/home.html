@@ -50,6 +50,11 @@
   .library h2 { font-family: var(--font-display); font-size: var(--step-2); font-weight: 600; margin: 0; }
   .library .count { color: var(--muted); }
   .library header .spacer { flex: 1; }
+  .library header button[hidden] { display: none; }
+  .where { margin: -8px 28px 14px; color: var(--muted); font-size: var(--step--1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .where span { color: var(--ink); user-select: text; }
+  .fallback { margin: -4px 28px 14px; }
+  .fallback[hidden] { display: none; }
 
   .grid {
     flex: 1; overflow: auto; padding: 4px 28px 28px;
@@ -120,8 +125,12 @@
       <h2>Library</h2>
       <span class="count" id="count"></span>
       <span class="spacer"></span>
+      <button class="quiet" id="resetFolder" hidden>Use default</button>
+      <button class="quiet" id="chooseFolder">Change folder…</button>
       <button class="quiet" id="folder">Show folder</button>
     </header>
+    <p class="where">Saving to <span id="where"></span></p>
+    <p class="notice fallback" id="fallback" hidden></p>
     <div class="grid" id="grid"></div>
   </section>
 

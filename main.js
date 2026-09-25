@@ -55,10 +55,51 @@ const webPreferences = (extra = {}) => ({
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Settings live in a small JSON file in the app's user-data folder.
+function settingsFile() { return path.join(app.getPath('userData'), 'settings.json'); }
+
+function readSettings() {
+  try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; }
+}
+
+function writeSettings(patch) {
+  const next = { ...readSettings(), ...patch };
+  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+  fs.writeFileSync(settingsFile(), JSON.stringify(next, null, 2));
+  return next;
+}
+
+function defaultLibraryDir() { return path.join(app.getPath('pictures'), 'Loupe'); }
+
+// A chosen folder must already exist and be writable. Loupe never creates it, so a folder on an
+// unplugged drive or disconnected share is reported as unreachable instead of being silently
+// recreated somewhere else.
+function isWritableDir(dir) {
+  try {
+    if (!fs.statSync(dir).isDirectory()) return false;
+    fs.accessSync(dir, fs.constants.W_OK);
+    return true;
+  } catch { return false; }
+}
+
+let libraryFallback = null; // set when the chosen folder can't be reached
+
+// Where captures and recordings are saved: the folder the person chose, or Pictures/Loupe.
 function libraryDir() {
-  const dir = path.join(app.getPath('pictures'), 'Loupe');
+  const chosen = readSettings().libraryDir;
+  libraryFallback = null;
+  if (chosen) {
+    if (isWritableDir(chosen)) { libraryFallback = null; return chosen; }
+    libraryFallback = chosen; // e.g. an unplugged drive or a disconnected network share
+  }
+  const dir = defaultLibraryDir();
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+function prettyPath(dir) {
+  const home = app.getPath('home');
+  return dir.startsWith(home) ? '~' + dir.slice(home.length) : dir;
 }
 
 function stamp() {
@@ -123,17 +164,17 @@ function showPermissionHelp(rawError) {
       + 'Then quit Loupe completely (the Quit button here, or Quit Loupe in the menu bar icon) and open it again. '
       + 'Closing the window is not enough, and macOS only applies the change after a restart.\n\n'
       + 'If Loupe is already switched on, the setting may belong to an older build: remove Loupe from the list with the minus button, quit, open Loupe and allow it again.\n\n'
-      + `Details: permission status "${status}"${rawError ? `, error "${rawError}"` : ''}.`,
+      + `Details: Loupe ${app.getVersion()}, permission status "${status}", error "${rawError || 'none'}".`,
   });
   if (choice === 0) shell.openExternal(PRIVACY_URL);
   if (choice === 1) { quitting = true; app.quit(); }
 }
 
-// Returns false (and explains why) when macOS has definitely refused screen access.
+// macOS's permission status is unreliable (it reports "denied" before the first request and
+// sometimes after access was granted), so never block on it. Always attempt the capture:
+// that lets macOS show its own prompt, and failures are handled where they happen.
 function ensureScreenAccess() {
-  const status = screenPermission();
-  if (status === 'denied' || status === 'restricted') { showPermissionHelp(); return false; }
-  return true; // 'granted', or 'not-determined' which lets macOS show its own prompt
+  return true;
 }
 
 // desktopCapturer.getSources, with the macOS permission failure turned into a clear message.
@@ -142,12 +183,12 @@ async function getSources(options) {
     return await desktopCapturer.getSources(options);
   } catch (err) {
     // Only blame the permission when macOS actually reports it as missing; otherwise show the real error.
-    if (isMac && screenPermission() !== 'granted') {
-      const e = new Error(err.message);
+    if (isMac) {
+      const e = new Error(String((err && err.message) || err || 'unknown error'));
       e.permission = true;
       throw e;
     }
-    throw new Error(`Screen capture failed: ${err.message}`);
+    throw new Error(`Screen capture failed: ${(err && err.message) || err}`);
   }
 }
 
@@ -191,7 +232,7 @@ async function grabDisplay(display) {
     source = sources[index] || sources[0];
   }
   if (!source || source.thumbnail.isEmpty()) {
-    if (isMac && screenPermission() !== 'granted') {
+    if (isMac) {
       const e = new Error('the screen image came back empty');
       e.permission = true;
       throw e;
@@ -211,12 +252,49 @@ function cursorDisplay() {
 // Capture flows
 // ---------------------------------------------------------------------------
 
+// Copying to the clipboard is a convenience, so it must never stop a capture from opening.
+// Each method is checked by reading the clipboard back, so "copied" is only reported when an
+// image is really there.
+function clipboardHasImage() {
+  try {
+    if (typeof clipboard.readImage === 'function' && !clipboard.readImage().isEmpty()) return true;
+    if (typeof clipboard.availableFormats === 'function') {
+      return clipboard.availableFormats().some((f) => /image|png|tiff/i.test(f));
+    }
+  } catch { /* fall through */ }
+  return false;
+}
+
+function copyImageToClipboard(image) {
+  const attempts = [
+    ['writeImage', () => clipboard.writeImage(image)],
+    ['write', () => clipboard.write({ image })],
+    ['writeBuffer', () => {
+      // Raw PNG under the platform's own type name: public.png on macOS, PNG on Windows.
+      const type = isMac ? 'public.png' : process.platform === 'win32' ? 'PNG' : 'image/png';
+      clipboard.clear();
+      clipboard.writeBuffer(type, image.toPNG());
+    }],
+  ];
+  for (const [name, fn] of attempts) {
+    if (typeof clipboard[name] !== 'function') continue;
+    try {
+      fn();
+      if (clipboardHasImage()) return true;
+      console.warn(`clipboard.${name} ran but no image is on the clipboard`);
+    } catch (err) {
+      console.warn(`clipboard.${name} failed:`, err);
+    }
+  }
+  console.warn('Could not put the image on the clipboard. Available:', Object.keys(clipboard || {}).join(', '));
+  return false;
+}
+
 function finishCapture(image) {
   const file = uniquePath(libraryDir(), `Capture ${stamp()}`, '.png');
   fs.writeFileSync(file, image.toPNG());
-  clipboard.writeImage(image);
   notifyLibrary();
-  openEditor(file);
+  openEditor(file, { copied: copyImageToClipboard(image) });
 }
 
 async function captureRegion(mode = 'capture', recordOptions = {}) {
@@ -336,7 +414,7 @@ function closePicker() {
   pickerWin = null;
 }
 
-function openEditor(file) {
+function openEditor(file, { copied = false } = {}) {
   const win = new BrowserWindow({
     width: 1320, height: 880, minWidth: 820, minHeight: 540,
     title: `${path.basename(file)} — Loupe`, backgroundColor: '#29323E', show: false,
@@ -344,7 +422,7 @@ function openEditor(file) {
     webPreferences: webPreferences(),
   });
   const id = win.webContents.id;
-  editors.set(id, { file, dirty: false });
+  editors.set(id, { file, dirty: false, copied, owned: isInLibrary(file) });
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', (e) => e.preventDefault());
   win.loadFile(path.join(__dirname, 'src', 'editor.html'));
@@ -490,7 +568,33 @@ ipcMain.handle('app:info', () => ({
   hotkeys: Object.fromEntries(Object.entries(HOTKEYS).map(([k, v]) => [k, { label: hotkeyLabel(v), ok: registeredKeys[k] !== false }])),
   printScreen: !!registeredKeys.printscreen,
   libraryDir: libraryDir(),
+  libraryLabel: prettyPath(libraryDir()),
+  libraryIsDefault: !readSettings().libraryDir,
+  libraryFallback: libraryFallback ? prettyPath(libraryFallback) : null,
 }));
+
+ipcMain.handle('library:choose', async (event) => {
+  const res = await dialog.showOpenDialog(senderWindow(event), {
+    title: 'Choose where Loupe saves captures',
+    buttonLabel: 'Use this folder',
+    defaultPath: libraryDir(),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (res.canceled || !res.filePaths[0]) return { ok: false };
+  const dir = res.filePaths[0];
+  if (!isWritableDir(dir)) {
+    return { ok: false, reason: `Loupe can't save to ${prettyPath(dir)}. Pick a folder you can write to.` };
+  }
+  writeSettings({ libraryDir: dir });
+  notifyLibrary();
+  return { ok: true, dir, label: prettyPath(dir) };
+});
+
+ipcMain.handle('library:resetFolder', () => {
+  writeSettings({ libraryDir: null });
+  notifyLibrary();
+  return { ok: true, label: prettyPath(libraryDir()) };
+});
 
 ipcMain.handle('capture:region', () => captureRegion());
 ipcMain.handle('capture:window', () => captureWindow());
@@ -498,7 +602,7 @@ ipcMain.handle('capture:fullscreen', () => captureFullscreen());
 ipcMain.handle('record:start', () => startRecording());
 
 ipcMain.handle('capture:clipboard', () => {
-  const image = clipboard.readImage();
+  const image = typeof clipboard.readImage === 'function' ? clipboard.readImage() : nativeImage.createEmpty();
   if (image.isEmpty()) return { ok: false, reason: 'There\'s no image on the clipboard. Copy an image first.' };
   finishCapture(image);
   return { ok: true };
@@ -697,7 +801,8 @@ ipcMain.handle('editor:config', (e) => {
   return {
     file: state.file,
     name: path.basename(state.file),
-    inLibrary: isInLibrary(state.file),
+    inLibrary: state.owned,
+    copied: !!state.copied,
     bytes: fs.readFileSync(state.file),
   };
 });
@@ -739,7 +844,7 @@ async function saveAs(event, buffer) {
 
 ipcMain.handle('editor:save', async (e, buffer) => {
   const state = editors.get(e.sender.id);
-  if (!state || !isInLibrary(state.file)) return saveAs(e, buffer);
+  if (!state || !state.owned) return saveAs(e, buffer);
   writeImage(state.file, buffer);
   state.dirty = false;
   const win = senderWindow(e);
@@ -750,10 +855,7 @@ ipcMain.handle('editor:save', async (e, buffer) => {
 
 ipcMain.handle('editor:saveAs', (e, buffer) => saveAs(e, buffer));
 
-ipcMain.handle('editor:copy', (e, buffer) => {
-  clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(buffer)));
-  return true;
-});
+ipcMain.handle('editor:copy', (e, buffer) => copyImageToClipboard(nativeImage.createFromBuffer(Buffer.from(buffer))));
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -766,6 +868,12 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (process.platform === 'win32') app.setAppUserModelId('app.loupe.capture');
+    // About Loupe shows the Electron version too, which helps when tracking down problems.
+    app.setAboutPanelOptions({
+      applicationName: 'Loupe',
+      applicationVersion: app.getVersion(),
+      version: `Electron ${process.versions.electron}`,
+    });
     buildAppMenu();
     buildTray();
     registerShortcuts();

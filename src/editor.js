@@ -1120,8 +1120,16 @@ async function save(as) {
 async function copy() {
   if (!base) return;
   const buffer = await exportBuffer();
-  await api.invoke('editor:copy', buffer);
-  setStatus('Copied to the clipboard.');
+  let ok = await api.invoke('editor:copy', buffer);
+  if (!ok && navigator.clipboard && window.ClipboardItem) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([buffer], { type: 'image/png' }) })]);
+      ok = true;
+    } catch (err) {
+      console.warn('Browser clipboard fallback failed', err);
+    }
+  }
+  setStatus(ok ? 'Copied to the clipboard.' : 'Couldn\'t copy to the clipboard. Use Save as, then drag the file into Slack.');
 }
 
 $('#save').addEventListener('click', () => save(false));
@@ -1157,9 +1165,11 @@ async function init() {
   base.getContext('2d').drawImage(bitmap, 0, 0);
   bitmap.close();
   resizeToBase();
-  setStatus(config.inLibrary
-    ? 'The capture is on your clipboard. Annotate it, then save or copy.'
-    : 'Opened. Save creates a copy so the original stays untouched.');
+  setStatus(!config.inLibrary
+    ? 'Opened. Save creates a copy so the original stays untouched.'
+    : config.copied
+      ? 'The capture is on your clipboard. Annotate it, then save or copy.'
+      : 'Capture saved. Annotate it, then save or copy.');
 }
 
 init();

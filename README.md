@@ -35,7 +35,7 @@ On macOS, `Alt` is the `⌥` Option key. You can change the shortcuts in the `HO
 
 **Capture.** When you capture a region, the screen freezes and dims. Drag to select an area. A magnifier next to the cursor shows the pixels under it, the coordinates and the colour. A single click or `Enter` captures the whole screen, and `Esc` cancels. Window capture lets you pick any open window from a gallery.
 
-Every capture is saved as a PNG to `Pictures/Loupe`, copied to your clipboard and opened in the editor.
+Every capture is saved as a PNG to your library folder, copied to your clipboard and opened in the editor. The library folder is `Pictures/Loupe` unless you pick another one with **Change folder…** in the home window.
 
 **Editor.** These are the tools, with their shortcut keys:
 
@@ -50,14 +50,14 @@ Every capture is saved as a PNG to `Pictures/Loupe`, copied to your clipboard an
 
 The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctrl+0` to fit, `Ctrl+1` for 100%, or `Ctrl` + mouse wheel). Hold `Space` and drag to pan. `Ctrl+C` copies the annotated image, `Ctrl+S` saves over the capture in the library, and `Ctrl+Shift+S` saves a PNG or JPEG anywhere. Opening an image from outside the library never overwrites it, because Save makes a copy.
 
-**Recording.** Pick a screen, a window, or **Select an area…**. You can include your microphone, and on Windows, computer sound. A small control bar counts down 3 seconds, then shows the timer with Pause, Stop and Discard buttons. When you record an area, a dashed outline marks it. Recordings are saved as `.webm` to `Pictures/Loupe`.
+**Recording.** Pick a screen, a window, or **Select an area…**. You can include your microphone, and on Windows, computer sound. A small control bar counts down 3 seconds, then shows the timer with Pause, Stop and Discard buttons. When you record an area, a dashed outline marks it. Recordings are saved to the library folder as MP4 (H.264) when the system can record it, which is the case on current macOS and Windows, and as WebM otherwise.
 
-**Library.** The home window shows every capture and recording, newest first. Click one to open it. When you hover over a tile you can show it in its folder or move it to the trash. The library also has **Open image…** and **Paste image**, which opens the clipboard image in the editor.
+**Library.** The home window shows every capture and recording in the library folder, newest first. **Change folder…** picks where new captures and recordings are saved, and **Use default** goes back to `Pictures/Loupe`. Existing files stay where they are. If the chosen folder can't be reached, such as an unplugged drive, Loupe saves to `Pictures/Loupe` and says so. Click one to open it. When you hover over a tile you can show it in its folder or move it to the trash. The library also has **Open image…** and **Paste image**, which opens the clipboard image in the editor.
 
 ## Limitations
 
 - Saving flattens the annotations into the PNG. There is no layered project format like Snagit's `.snagx`, so you can't move annotations after saving and reopening. Use **Save as…** if you want to keep the untouched original.
-- Recordings are WebM (VP9 or VP8). Chrome, Firefox, VLC and most editors play them. To get MP4, convert with `ffmpeg -i in.webm out.mp4`. Some players can't seek in MediaRecorder WebM files until they are converted.
+- If a system can't record MP4, recordings fall back to WebM (VP9 or VP8). Chrome, Firefox and VLC play those, and `ffmpeg -i in.webm out.mp4` converts them.
 - Computer sound capture works on Windows only. That's a Chromium limitation. On macOS you'd need a loopback driver such as BlackHole, selected as the microphone.
 - Window capture uses the OS window thumbnail, so it can't capture minimized windows. There is no scrolling or panoramic capture, and no click-a-window-in-the-overlay mode.
 - On Linux, Wayland sessions limit screen capture. X11 works best.

@@ -6,7 +6,7 @@ const INVOKE = new Set([
   'app:info', 'app:permissionHelp',
   'capture:region', 'capture:window', 'capture:fullscreen', 'capture:clipboard', 'capture:openFile',
   'record:start',
-  'library:list', 'library:open', 'library:reveal', 'library:folder', 'library:trash',
+  'library:list', 'library:open', 'library:reveal', 'library:folder', 'library:trash', 'library:choose', 'library:resetFolder',
   'overlay:config', 'overlay:done',
   'picker:config', 'picker:choose', 'picker:region', 'picker:cancel', 'sources:list',
   'recorder:config', 'recorder:save', 'recorder:close', 'recorder:error',

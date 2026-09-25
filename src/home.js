@@ -9,6 +9,23 @@ $('#fullscreen').addEventListener('click', () => api.invoke('capture:fullscreen'
 $('#record').addEventListener('click', () => api.invoke('record:start'));
 $('#openFile').addEventListener('click', () => api.invoke('capture:openFile'));
 $('#folder').addEventListener('click', () => api.invoke('library:folder'));
+$('#chooseFolder').addEventListener('click', async () => {
+  const res = await api.invoke('library:choose');
+  if (!res.ok && res.reason) showNotice(res.reason);
+  else if (res.ok) showNotice('');
+});
+$('#resetFolder').addEventListener('click', () => api.invoke('library:resetFolder'));
+
+function showFolder(info) {
+  $('#where').textContent = info.libraryLabel;
+  $('#where').title = info.libraryDir;
+  $('#resetFolder').hidden = info.libraryIsDefault;
+  const fb = $('#fallback');
+  fb.hidden = !info.libraryFallback;
+  if (info.libraryFallback) {
+    fb.textContent = `Loupe can't reach ${info.libraryFallback} right now, so new captures go to ${info.libraryLabel}. Reconnect the drive, or choose another folder.`;
+  }
+}
 $('#paste').addEventListener('click', async () => {
   const res = await api.invoke('capture:clipboard');
   if (!res.ok) showNotice(res.reason);
@@ -42,6 +59,7 @@ async function renderLibrary() {
   const token = ++renderToken;
   const [items, info] = await Promise.all([api.invoke('library:list'), api.invoke('app:info')]);
   if (token !== renderToken) return; // a newer refresh is on its way
+  showFolder(info);
   const grid = document.createDocumentFragment();
   $('#count').textContent = items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : '';
 
@@ -123,9 +141,6 @@ async function init() {
     k.textContent = hk ? hk.label : '';
     if (hk && !hk.ok) { k.title = 'Another app is using this shortcut'; k.style.textDecoration = 'line-through'; }
   });
-  if (info.permission && info.permission !== 'granted' && info.platform === 'darwin') {
-    showNotice('Loupe needs Screen Recording permission. Open System Settings > Privacy & Security > Screen Recording, turn on Loupe (or Electron while developing), then restart the app.');
-  }
   renderLibrary();
 }
 

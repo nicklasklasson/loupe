@@ -1,7 +1,7 @@
 {
   "name": "loupe",
   "productName": "Loupe",
-  "version": "0.1.1",
+  "version": "0.1.7",
   "description": "Screen capture, annotation and screen recording for the desktop.",
   "main": "main.js",
   "license": "MIT",
@@ -12,8 +12,8 @@
     "dist:win": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
   },
   "build": {
     "appId": "app.loupe.capture",
@@ -71,10 +71,8 @@
       "target": "AppImage",
       "icon": "assets/icon.png",
       "category": "Graphics"
-    }
+    },
+    "afterSign": "build/adhoc-sign.js"
   },
-  "author": "Your team",
-  "allowScripts": {
-    "electron-winstaller@5.4.0": true
-  }
+  "author": "Your team"
 }

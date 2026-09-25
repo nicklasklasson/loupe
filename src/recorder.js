@@ -31,9 +31,15 @@ function tick() {
   $('#time').textContent = fmt(now - startedAt - pausedTotal);
 }
 
-function pickMime() {
-  const options = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9', 'video/webm'];
-  return options.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+// MP4 (H.264) plays everywhere, so use it when this Chromium build can record it; otherwise WebM.
+function pickMime(hasAudio) {
+  const mp4 = hasAudio
+    ? ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1,opus', 'video/mp4']
+    : ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4'];
+  const webm = hasAudio
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  return [...mp4, ...webm].find((m) => MediaRecorder.isTypeSupported(m)) || '';
 }
 
 function desktopVideoConstraints(cfg) {
@@ -150,8 +156,16 @@ async function start() {
   const ok = await countdown(3);
   if (!ok) return;
 
-  mime = pickMime();
-  recorder = new MediaRecorder(output, { mimeType: mime || undefined, videoBitsPerSecond: 8_000_000 });
+  mime = pickMime(audioTracks.length > 0);
+  try {
+    recorder = new MediaRecorder(output, { mimeType: mime || undefined, videoBitsPerSecond: 8_000_000 });
+  } catch (err) {
+    // Some systems report MP4 as supported but fail to create the encoder; fall back to WebM.
+    console.warn(`Could not record as ${mime}, falling back to WebM`, err);
+    mime = MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '';
+    recorder = new MediaRecorder(output, { mimeType: mime || undefined, videoBitsPerSecond: 8_000_000 });
+  }
+  mime = recorder.mimeType || mime;
   recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
     cleanup();
