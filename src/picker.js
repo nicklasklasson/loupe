@@ -8,7 +8,7 @@ let loading = false;
 let permissionShown = false;
 
 function audioOptions() {
-  return { mic: $('#mic').checked, systemAudio: !$('#sysWrap').hidden && $('#sys').checked };
+  return { mic: $('#mic').checked, systemAudio: !$('#sysWrap').hidden && $('#sys').checked, camera: $('#cam').checked };
 }
 
 function regionTile() {
@@ -65,6 +65,8 @@ async function load() {
     loading = false;
   }
 }
+
+$('#cam').addEventListener('change', () => { $('#camNote').hidden = !$('#cam').checked; });
 
 document.querySelectorAll('.tabs button').forEach((btn) => {
   btn.addEventListener('click', () => {

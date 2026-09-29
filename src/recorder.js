@@ -33,9 +33,11 @@ function tick() {
 
 // MP4 (H.264) plays everywhere, so use it when this Chromium build can record it; otherwise WebM.
 function pickMime(hasAudio) {
+  // Only MP4 with H.264 plays everywhere. A plain "video/mp4" can mean VP9 inside MP4, which
+  // QuickTime can't play, so it isn't in the list.
   const mp4 = hasAudio
-    ? ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1,opus', 'video/mp4']
-    : ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/mp4'];
+    ? ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a.40.2']
+    : ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1'];
   const webm = hasAudio
     ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
     : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];

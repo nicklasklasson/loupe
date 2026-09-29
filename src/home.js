@@ -7,6 +7,8 @@ $('#region').addEventListener('click', () => api.invoke('capture:region'));
 $('#window').addEventListener('click', () => api.invoke('capture:window'));
 $('#fullscreen').addEventListener('click', () => api.invoke('capture:fullscreen'));
 $('#record').addEventListener('click', () => api.invoke('record:start'));
+$('#text').addEventListener('click', () => api.invoke('capture:text'));
+$('#steps').addEventListener('click', () => api.invoke('steps:start'));
 $('#openFile').addEventListener('click', () => api.invoke('capture:openFile'));
 $('#folder').addEventListener('click', () => api.invoke('library:folder'));
 $('#chooseFolder').addEventListener('click', async () => {
@@ -90,6 +92,16 @@ async function renderLibrary() {
       img.src = item.url;
       img.alt = '';
       thumb.appendChild(img);
+    } else if (item.kind === 'guide') {
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.src = item.url;
+      img.alt = '';
+      thumb.appendChild(img);
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = `Guide · ${item.steps} step${item.steps === 1 ? '' : 's'}`;
+      tile.appendChild(badge);
     } else {
       const v = document.createElement('video');
       v.src = item.url;
@@ -106,7 +118,7 @@ async function renderLibrary() {
     meta.className = 'meta';
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = displayName(item.name).replace(/^(Capture|Recording) /, '') || item.name;
+    name.textContent = displayName(item.name).replace(/^(Capture|Recording|Guide) /, '') || item.name;
     const kind = document.createElement('span');
     kind.className = 'kind';
     kind.textContent = formatDate(item.mtime);
@@ -122,6 +134,20 @@ async function renderLibrary() {
     trash.textContent = 'Delete';
     trash.title = 'Move to trash';
     trash.addEventListener('click', (e) => { e.stopPropagation(); api.invoke('library:trash', item.file); });
+    if (item.kind === 'image') {
+      const pin = document.createElement('button');
+      pin.textContent = 'Pin';
+      pin.title = 'Keep on top of other windows';
+      pin.addEventListener('click', (e) => { e.stopPropagation(); api.invoke('library:pin', item.file); });
+      tools.append(pin);
+    }
+    if (item.kind === 'video') {
+      const play = document.createElement('button');
+      play.textContent = 'Play';
+      play.title = 'Open in your video player';
+      play.addEventListener('click', (e) => { e.stopPropagation(); api.invoke('library:play', item.file); });
+      tools.append(play);
+    }
     tools.append(reveal, trash);
 
     thumb.appendChild(tools);

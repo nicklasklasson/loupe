@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Step capture</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  html, body { background: #1C2430; color: #fff; overflow: hidden; }
+  body { display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px; height: 100vh; -webkit-app-region: drag; }
+  .badge { background: #C99230; color: #1C2430; font-weight: 700; border-radius: 5px; padding: 2px 8px; font-variant-numeric: tabular-nums; min-width: 24px; text-align: center; }
+  .state { color: #B7C1CE; flex: 1; font-size: var(--step--1); line-height: 1.3; }
+  button { -webkit-app-region: no-drag; background: #2A3646; border-color: #3B4859; color: #fff; padding: 6px 11px; }
+  button:hover { background: #344256; border-color: #4A5A6E; }
+  button.done { background: #C99230; border-color: #C99230; color: #1C2430; font-weight: 600; }
+  button.done:hover { background: #D6A24A; }
+  button.icon { padding: 6px 8px; }
+  .flash { animation: flash 300ms ease-out; }
+  @keyframes flash { from { background: #fff; color: #1C2430; } }
+</style>
+</head>
+<body>
+  <span class="badge" id="count">0</span>
+  <span class="state" id="state">Click through your task. Each click becomes a step.</span>
+  <button id="pause">Pause</button>
+  <button class="done" id="done">Done</button>
+  <button class="icon" id="cancel" title="Discard step capture" aria-label="Discard step capture">✕</button>
+  <div id="videos" hidden></div>
+<script src="steps.js"></script>
+</body>
+</html>

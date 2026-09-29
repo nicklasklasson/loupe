@@ -208,7 +208,9 @@ async function init() {
   mode = config.mode;
   hint.innerHTML = mode === 'record'
     ? 'Drag over the area to record. <kbd>Enter</kbd> records the whole screen, <kbd>Esc</kbd> cancels.'
-    : 'Drag to capture an area. Click or press <kbd>Enter</kbd> for the whole screen, <kbd>Esc</kbd> cancels.';
+    : mode === 'ocr'
+      ? 'Drag over the text you want to copy. <kbd>Esc</kbd> cancels.'
+      : 'Drag to capture an area. Click or press <kbd>Enter</kbd> for the whole screen, <kbd>Esc</kbd> cancels.';
 
   const blob = new Blob([config.jpeg], { type: 'image/jpeg' });
   const url = URL.createObjectURL(blob);

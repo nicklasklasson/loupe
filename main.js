@@ -17,6 +17,8 @@ const HOTKEYS = {
   window: 'Alt+Shift+2',
   fullscreen: 'Alt+Shift+3',
   record: 'Alt+Shift+R',
+  text: 'Alt+Shift+T',
+  steps: 'Alt+Shift+S',
 };
 // PrintScreen is also bound to region capture on Windows/Linux when the OS lets us have it.
 const EXTRA_REGION_KEY = process.platform === 'darwin' ? null : 'PrintScreen';
@@ -470,11 +472,13 @@ function openRecorder(config) {
   rwin.on('closed', () => {
     if (recorderWin === rwin) recorderWin = null;
     closeFrame();
+    closeCamera();
     if (recorderConfig && recorderConfig.restore) recorderConfig.restore();
     recorderConfig = null;
   });
 
   if (config.rect) openFrame(display, config.rect);
+  if (config.camera) openCamera(display, config.rect);
 }
 
 // A click-through outline that marks the area being recorded.
@@ -505,6 +509,388 @@ function closeFrame() {
 }
 
 // ---------------------------------------------------------------------------
+// Copy text from the screen (OCR)
+// ---------------------------------------------------------------------------
+
+const ocr = require('./ocr');
+const textJobs = new Map(); // webContents.id -> Promise<{ text }>
+
+function ocrCacheDir() { return path.join(app.getPath('userData'), 'ocr-cache'); }
+
+// Small UI text is read more reliably when it is enlarged first.
+function prepareForOcr(image) {
+  const { width, height } = image.getSize();
+  if (width * height > 12e6) return image.toPNG();
+  const scale = width < 1600 ? 2 : 1;
+  return (scale > 1 ? image.resize({ width: width * scale, height: height * scale, quality: 'best' }) : image).toPNG();
+}
+
+function openTextWindow(job) {
+  const cursor = screen.getCursorScreenPoint();
+  const wa = screen.getDisplayNearestPoint(cursor).workArea;
+  const W = 520;
+  const H = 360;
+  const win = new BrowserWindow({
+    width: W, height: H, minWidth: 360, minHeight: 220,
+    x: Math.round(Math.min(Math.max(cursor.x - W / 2, wa.x + 8), wa.x + wa.width - W - 8)),
+    y: Math.round(Math.min(Math.max(cursor.y - H / 2, wa.y + 8), wa.y + wa.height - H - 8)),
+    title: 'Text — Loupe', backgroundColor: '#EEF1F4', show: false, alwaysOnTop: true,
+    webPreferences: webPreferences(),
+  });
+  win.setMenuBarVisibility(false);
+  win.on('page-title-updated', (e) => e.preventDefault());
+  textJobs.set(win.webContents.id, job);
+  win.loadFile(path.join(__dirname, 'src', 'text.html'));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  const id = win.webContents.id;
+  win.on('closed', () => textJobs.delete(id));
+}
+
+function readText(image) {
+  const job = ocr.recognize(prepareForOcr(image), ocrCacheDir())
+    .then((text) => {
+      if (text) clipboard.writeText(text);
+      return { text, copied: !!text };
+    })
+    .catch((err) => ({ text: '', error: err.message || String(err) }));
+  openTextWindow(job);
+}
+
+function captureText() { captureRegion('ocr'); }
+
+// ---------------------------------------------------------------------------
+// Pinned captures: always-on-top image windows
+// ---------------------------------------------------------------------------
+
+const pins = new Map(); // webContents.id -> { bytes, width, height, win }
+
+function openPin(image) {
+  const png = image.toPNG();
+  const { width, height } = image.getSize();
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const wa = display.workArea;
+  // Captures are in physical pixels; show them at their real on-screen size, capped to the screen.
+  let w = width / display.scaleFactor;
+  let h = height / display.scaleFactor;
+  const cap = Math.min((wa.width * 0.7) / w, (wa.height * 0.7) / h, 1);
+  w = Math.max(80, Math.round(w * cap));
+  h = Math.max(60, Math.round(h * cap));
+  const win = new BrowserWindow({
+    width: w, height: h,
+    x: Math.round(Math.min(Math.max(cursor.x - w / 2, wa.x), wa.x + wa.width - w)),
+    y: Math.round(Math.min(Math.max(cursor.y - h / 2, wa.y), wa.y + wa.height - h)),
+    frame: false, resizable: true, minimizable: false, maximizable: false, fullscreenable: false,
+    alwaysOnTop: true, skipTaskbar: true, hasShadow: true, show: false, backgroundColor: '#29323E',
+    title: 'Pinned capture — Loupe',
+    webPreferences: webPreferences(),
+  });
+  win.setAlwaysOnTop(true, 'floating');
+  if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  win.setAspectRatio(w / h);
+  const id = win.webContents.id;
+  pins.set(id, { bytes: png, width, height, win, aspect: w / h });
+  win.loadFile(path.join(__dirname, 'src', 'pin.html'));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.show(); });
+  win.on('closed', () => pins.delete(id));
+}
+
+function closeAllPins() {
+  for (const { win } of pins.values()) if (!win.isDestroyed()) win.close();
+}
+
+// ---------------------------------------------------------------------------
+// Camera bubble shown on screen while recording
+// ---------------------------------------------------------------------------
+
+let cameraWin = null;
+const CAMERA_SIZES = [160, 220, 300];
+
+async function openCamera(display, rect) {
+  if (cameraWin && !cameraWin.isDestroyed()) return;
+  if (isMac) {
+    try {
+      const ok = await systemPreferences.askForMediaAccess('camera');
+      if (!ok) {
+        dialog.showMessageBox({
+          type: 'info', message: 'Loupe can\'t use the camera',
+          detail: 'Allow Loupe in System Settings > Privacy & Security > Camera, then start the recording again. The recording continues without the camera.',
+        });
+        return;
+      }
+    } catch { /* older macOS: fall through and let the page ask */ }
+  }
+  const size = CAMERA_SIZES[1];
+  const area = rect
+    ? { x: display.bounds.x + rect.x, y: display.bounds.y + rect.y, width: rect.width, height: rect.height }
+    : display.workArea;
+  const margin = 24;
+  cameraWin = new BrowserWindow({
+    x: Math.round(area.x + margin),
+    y: Math.round(area.y + area.height - size - margin),
+    width: size, height: size,
+    frame: false, transparent: true, resizable: false, maximizable: false, minimizable: false, fullscreenable: false,
+    hasShadow: false, alwaysOnTop: true, skipTaskbar: true, show: false,
+    title: 'Camera — Loupe',
+    webPreferences: webPreferences({ backgroundThrottling: false }),
+  });
+  cameraWin.setAlwaysOnTop(true, 'screen-saver');
+  if (isMac) cameraWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  cameraWin.loadFile(path.join(__dirname, 'src', 'camera.html'));
+  const cwin = cameraWin;
+  cwin.once('ready-to-show', () => { if (!cwin.isDestroyed()) cwin.showInactive(); });
+  cwin.on('closed', () => { if (cameraWin === cwin) cameraWin = null; });
+}
+
+function closeCamera() {
+  if (cameraWin && !cameraWin.isDestroyed()) cameraWin.close();
+  cameraWin = null;
+}
+
+// ---------------------------------------------------------------------------
+// Step capture: every click becomes a numbered screenshot in a guide
+// ---------------------------------------------------------------------------
+
+let stepSession = null;
+let stepBar = null;
+const guides = new Map(); // webContents.id -> dir
+
+const ACCESSIBILITY_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
+
+function guideFile(dir) { return path.join(dir, 'guide.json'); }
+
+function readGuide(dir) {
+  try { return JSON.parse(fs.readFileSync(guideFile(dir), 'utf8')); } catch { return null; }
+}
+
+function writeGuide(dir, guide) {
+  fs.writeFileSync(guideFile(dir), JSON.stringify(guide, null, 2));
+}
+
+function isGuideDir(dir) {
+  return fs.existsSync(guideFile(dir));
+}
+
+// macOS only lets an app see clicks in other apps once it has Accessibility permission.
+function ensureClickAccess() {
+  if (!isMac) return true;
+  if (systemPreferences.isTrustedAccessibilityClient(false)) return true;
+  systemPreferences.isTrustedAccessibilityClient(true); // shows the system prompt
+  const choice = dialog.showMessageBoxSync({
+    type: 'info',
+    buttons: ['Open System Settings', 'Cancel'],
+    defaultId: 0, cancelId: 1,
+    message: 'Step capture needs Accessibility permission',
+    detail: 'Loupe needs to notice your clicks in other apps to take a screenshot at each step. It only listens while a step capture is running, and never records what you type.\n\n'
+      + 'Turn on Loupe in System Settings > Privacy & Security > Accessibility, then quit Loupe from the menu bar and open it again.',
+  });
+  if (choice === 0) shell.openExternal(ACCESSIBILITY_URL);
+  return false;
+}
+
+// The click hook reports where the click happened. Electron's own cursor position can lag behind
+// fast clicks, so use the hook's coordinates: points on macOS (the same as Electron's), physical
+// pixels on Windows (converted here).
+function hookPointToDip(e) {
+  const p = { x: Math.round(e.x), y: Math.round(e.y) };
+  if (process.platform === 'win32' && typeof screen.screenToDipPoint === 'function') return screen.screenToDipPoint(p);
+  return p;
+}
+
+function loadClickHook() {
+  try {
+    return require('uiohook-napi').uIOhook;
+  } catch (err) {
+    showError(new Error(`Step capture isn't available on this computer: ${err.message}`));
+    return null;
+  }
+}
+
+async function startStepCapture() {
+  if (stepSession) { if (stepBar && !stepBar.isDestroyed()) stepBar.showInactive(); return; }
+  if (recorderWin) { showError(new Error('Finish the screen recording before starting a step capture.')); return; }
+  if (!ensureClickAccess()) return;
+  const hook = loadClickHook();
+  if (!hook) return;
+
+  const dir = uniquePath(libraryDir(), `Guide ${stamp()}`, '');
+  fs.mkdirSync(dir, { recursive: true });
+  const guide = { title: 'New guide', created: Date.now(), steps: [] };
+  writeGuide(dir, guide);
+
+  const restore = await hideOwnWindows();
+  stepSession = { dir, guide, hook, restore, lastClick: 0, paused: false, pending: new Map(), seq: 0 };
+
+  const onDown = (e) => {
+    const s = stepSession;
+    if (!s || s.paused) return;
+    if (e.button !== 1) return; // left clicks only
+    const now = Date.now();
+    if (now - s.lastClick < 350) return; // ignore the second half of a double-click
+    s.lastClick = now;
+    const pt = hookPointToDip(e);
+    if (stepBar && !stepBar.isDestroyed()) {
+      const b = stepBar.getBounds();
+      if (pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height) return;
+    }
+    const display = screen.getDisplayNearestPoint(pt);
+    const id = ++s.seq;
+    s.pending.set(id, { pt, display });
+    if (stepBar && !stepBar.isDestroyed()) stepBar.webContents.send('steps:grab', { id, displayId: String(display.id), at: now });
+    // If the live view can't answer quickly, fall back to a regular screenshot.
+    setTimeout(() => { if (s.pending.has(id)) fallbackStep(id); }, 700);
+  };
+  stepSession.onDown = onDown;
+  hook.on('mousedown', onDown);
+  try {
+    hook.start();
+  } catch (err) {
+    hook.removeListener('mousedown', onDown);
+    stepSession = null;
+    restore();
+    showError(new Error(`Loupe couldn't watch for clicks: ${err.message}`));
+    return;
+  }
+  openStepBar();
+}
+
+async function fallbackStep(id) {
+  const s = stepSession;
+  if (!s || !s.pending.has(id)) return;
+  const { pt, display } = s.pending.get(id);
+  s.pending.delete(id);
+  try {
+    const { image } = await grabDisplay(display);
+    addStep(image.toPNG(), image.getSize().width / display.bounds.width, pt, display);
+  } catch (err) { console.warn('Step capture fallback failed', err); }
+}
+
+function addStep(png, ratio, pt, display) {
+  const s = stepSession;
+  if (!s) return;
+  const n = s.guide.steps.length + 1;
+  const name = `Step ${String(n).padStart(2, '0')}.png`;
+  fs.writeFileSync(path.join(s.dir, name), png);
+  s.guide.steps.push({
+    file: name,
+    text: '',
+    click: { x: Math.round((pt.x - display.bounds.x) * ratio), y: Math.round((pt.y - display.bounds.y) * ratio) },
+    scale: ratio,
+    marked: false,
+  });
+  writeGuide(s.dir, s.guide);
+  if (stepBar && !stepBar.isDestroyed()) stepBar.webContents.send('steps:count', n);
+}
+
+function openStepBar() {
+  const display = cursorDisplay();
+  const wa = display.workArea;
+  const W = 400;
+  const H = 60;
+  stepBar = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - W) / 2), y: Math.round(wa.y + wa.height - H - 28),
+    width: W, height: H,
+    frame: false, resizable: false, maximizable: false, fullscreenable: false,
+    alwaysOnTop: true, show: false, backgroundColor: '#1C2430', hasShadow: true,
+    title: 'Step capture — Loupe',
+    webPreferences: webPreferences({ backgroundThrottling: false }),
+  });
+  stepBar.setAlwaysOnTop(true, 'screen-saver');
+  stepBar.setContentProtection(true); // keep the bar out of the screenshots
+  stepBar.loadFile(path.join(__dirname, 'src', 'steps.html'));
+  const bar = stepBar;
+  bar.once('ready-to-show', () => { if (!bar.isDestroyed()) bar.showInactive(); });
+  bar.on('closed', () => { if (stepBar === bar) stepBar = null; if (stepSession) finishStepCapture(false); });
+}
+
+function finishStepCapture(keep) {
+  const s = stepSession;
+  if (!s) return;
+  stepSession = null;
+  try { s.hook.removeListener('mousedown', s.onDown); s.hook.stop(); } catch { /* already stopped */ }
+  if (stepBar && !stepBar.isDestroyed()) stepBar.close();
+  s.restore();
+  if (keep && s.guide.steps.length) {
+    notifyLibrary();
+    openGuide(s.dir);
+  } else {
+    shell.trashItem(s.dir).catch(() => {});
+  }
+}
+
+function openGuide(dir) {
+  for (const [id, d] of guides) {
+    if (d === dir) {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.id === id);
+      if (w) { w.show(); w.focus(); return; }
+    }
+  }
+  const win = new BrowserWindow({
+    width: 1000, height: 860, minWidth: 720, minHeight: 500,
+    title: `${path.basename(dir)} — Loupe`, backgroundColor: '#EEF1F4', show: false,
+    webPreferences: webPreferences(),
+  });
+  win.setMenuBarVisibility(false);
+  win.on('page-title-updated', (e) => e.preventDefault());
+  guides.set(win.webContents.id, dir);
+  const id = win.webContents.id;
+  win.loadFile(path.join(__dirname, 'src', 'guide.html'));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.on('closed', () => guides.delete(id));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
+}
+
+function guideHtml(dir, guide) {
+  const steps = guide.steps.map((step, i) => {
+    const data = fs.readFileSync(path.join(dir, step.file)).toString('base64');
+    const text = step.text ? `<p>${escapeHtml(step.text).replace(/\n/g, '<br>')}</p>` : '';
+    return `<section class="step"><h2><span>${i + 1}</span>${escapeHtml(step.title || `Step ${i + 1}`)}</h2>${text}<img src="data:image/png;base64,${data}" alt="Step ${i + 1}"></section>`;
+  }).join('\n');
+  const date = new Date(guide.created || Date.now()).toLocaleDateString();
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(guide.title || 'Guide')}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #1C2430; max-width: 900px; margin: 0 auto; padding: 32px 24px 48px; line-height: 1.5; }
+  header { border-bottom: 3px solid #C99230; padding-bottom: 14px; margin-bottom: 28px; }
+  h1 { margin: 0 0 4px; font-size: 28px; }
+  .meta { color: #5B6778; font-size: 14px; }
+  .step { margin: 0 0 36px; page-break-inside: avoid; break-inside: avoid; }
+  h2 { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 0 0 8px; }
+  h2 span { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #E5484D; color: #fff; font-size: 15px; flex: none; }
+  p { margin: 0 0 10px; }
+  img { max-width: 100%; border: 1px solid #D5DBE2; border-radius: 6px; display: block; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+<header><h1>${escapeHtml(guide.title || 'Guide')}</h1><div class="meta">${guide.steps.length} steps · ${escapeHtml(date)}</div></header>
+${steps}
+</body></html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Video editor
+// ---------------------------------------------------------------------------
+
+const videoEditors = new Map(); // webContents.id -> file
+
+function openVideoEditor(file) {
+  const win = new BrowserWindow({
+    width: 1180, height: 820, minWidth: 780, minHeight: 540,
+    title: `${path.basename(file)} — Loupe`, backgroundColor: '#29323E', show: false,
+    webPreferences: webPreferences({ backgroundThrottling: false }),
+  });
+  win.setMenuBarVisibility(false);
+  win.on('page-title-updated', (e) => e.preventDefault());
+  videoEditors.set(win.webContents.id, file);
+  const id = win.webContents.id;
+  win.loadFile(path.join(__dirname, 'src', 'video.html'));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.on('closed', () => videoEditors.delete(id));
+}
+
+// ---------------------------------------------------------------------------
 // Tray, menu and shortcuts
 // ---------------------------------------------------------------------------
 
@@ -517,6 +903,10 @@ function buildTray() {
     { label: 'Capture window', accelerator: HOTKEYS.window, click: captureWindow },
     { label: 'Capture full screen', accelerator: HOTKEYS.fullscreen, click: captureFullscreen },
     { label: 'Record screen', accelerator: HOTKEYS.record, click: startRecording },
+    { label: 'Copy text from screen', accelerator: HOTKEYS.text, click: captureText },
+    { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
+    { type: 'separator' },
+    { label: 'Close all pinned captures', click: closeAllPins },
     { type: 'separator' },
     { label: 'Open Loupe', click: showHome },
     { label: 'Open captures folder', click: () => shell.openPath(libraryDir()) },
@@ -538,6 +928,10 @@ function buildAppMenu() {
         { label: 'Window', accelerator: HOTKEYS.window, click: captureWindow },
         { label: 'Full screen', accelerator: HOTKEYS.fullscreen, click: captureFullscreen },
         { label: 'Record screen', accelerator: HOTKEYS.record, click: startRecording },
+        { label: 'Copy text from screen', accelerator: HOTKEYS.text, click: captureText },
+        { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
+        { type: 'separator' },
+        { label: 'Close all pinned captures', click: closeAllPins },
       ],
     },
     { role: 'editMenu' },
@@ -553,6 +947,8 @@ function registerShortcuts() {
   bind('window', HOTKEYS.window, captureWindow);
   bind('fullscreen', HOTKEYS.fullscreen, captureFullscreen);
   bind('record', HOTKEYS.record, startRecording);
+  bind('text', HOTKEYS.text, captureText);
+  bind('steps', HOTKEYS.steps, startStepCapture);
   if (EXTRA_REGION_KEY) bind('printscreen', EXTRA_REGION_KEY, () => captureRegion());
 }
 
@@ -600,6 +996,8 @@ ipcMain.handle('capture:region', () => captureRegion());
 ipcMain.handle('capture:window', () => captureWindow());
 ipcMain.handle('capture:fullscreen', () => captureFullscreen());
 ipcMain.handle('record:start', () => startRecording());
+ipcMain.handle('capture:text', () => captureText());
+ipcMain.handle('steps:start', () => startStepCapture());
 
 ipcMain.handle('capture:clipboard', () => {
   const image = typeof clipboard.readImage === 'function' ? clipboard.readImage() : nativeImage.createEmpty();
@@ -622,11 +1020,25 @@ ipcMain.handle('library:list', () => {
   const dir = libraryDir();
   return fs.readdirSync(dir)
     .map((name) => {
+      const file = path.join(dir, name);
+      let stat;
+      try { stat = fs.statSync(file); } catch { return null; }
+      if (stat.isDirectory()) {
+        const guide = isGuideDir(file) ? readGuide(file) : null;
+        if (!guide || !guide.steps || !guide.steps.length) return null;
+        const first = path.join(file, guide.steps[0].file);
+        let firstMtime = stat.mtimeMs;
+        try { firstMtime = fs.statSync(first).mtimeMs; } catch { /* keep folder time */ }
+        return {
+          file, name: guide.title && guide.title !== 'New guide' ? guide.title : name, kind: 'guide',
+          steps: guide.steps.length,
+          url: pathToFileURL(first).href + '?v=' + firstMtime,
+          mtime: Math.max(stat.mtimeMs, firstMtime), size: 0,
+        };
+      }
       const ext = path.extname(name).toLowerCase();
       const kind = IMAGE_EXT.has(ext) ? 'image' : VIDEO_EXT.has(ext) ? 'video' : null;
       if (!kind) return null;
-      const file = path.join(dir, name);
-      const stat = fs.statSync(file);
       return { file, name, kind, url: pathToFileURL(file).href + '?v=' + stat.mtimeMs, mtime: stat.mtimeMs, size: stat.size };
     })
     .filter(Boolean)
@@ -635,11 +1047,19 @@ ipcMain.handle('library:list', () => {
 });
 
 ipcMain.handle('library:open', (e, file) => {
+  if (!isInLibrary(file)) return;
   const ext = path.extname(file).toLowerCase();
-  if (IMAGE_EXT.has(ext)) openEditor(file);
-  else shell.openPath(file);
+  if (isGuideDir(file)) openGuide(file);
+  else if (IMAGE_EXT.has(ext)) openEditor(file);
+  else if (VIDEO_EXT.has(ext)) openVideoEditor(file);
 });
-ipcMain.handle('library:reveal', (e, file) => shell.showItemInFolder(file));
+ipcMain.handle('library:play', (e, file) => { if (isInLibrary(file)) shell.openPath(file); });
+ipcMain.handle('library:pin', (e, file) => {
+  if (!isInLibrary(file)) return;
+  const image = nativeImage.createFromPath(file);
+  if (!image.isEmpty()) openPin(image);
+});
+ipcMain.handle('library:reveal', (e, file) => { if (isInLibrary(file)) shell.showItemInFolder(file); });
 ipcMain.handle('library:folder', () => shell.openPath(libraryDir()));
 ipcMain.handle('library:trash', async (e, file) => {
   if (!isInLibrary(file)) return false;
@@ -669,7 +1089,7 @@ ipcMain.handle('overlay:done', (e, rect) => {
   if (!p) return;
   if (!rect) { p.restore(); return; }
 
-  if (p.mode === 'capture') {
+  if (p.mode === 'capture' || p.mode === 'ocr') {
     const size = p.image.getSize();
     const ratio = size.width / p.display.bounds.width;
     const x = Math.max(0, Math.round(rect.x * ratio));
@@ -680,7 +1100,8 @@ ipcMain.handle('overlay:done', (e, rect) => {
       height: Math.max(1, Math.min(size.height - y, Math.round(rect.height * ratio))),
     };
     p.restore();
-    finishCapture(p.image.crop(crop));
+    if (p.mode === 'ocr') readText(p.image.crop(crop));
+    else finishCapture(p.image.crop(crop));
   } else {
     openRecorder({
       sourceId: p.sourceId,
@@ -749,13 +1170,13 @@ ipcMain.handle('picker:choose', async (e, choice) => {
   const restore = await hideOwnWindows();
   openRecorder({
     sourceId: choice.id, kind: choice.kind, display, rect: null, restore,
-    mic: !!choice.mic, systemAudio: !!choice.systemAudio,
+    mic: !!choice.mic, systemAudio: !!choice.systemAudio, camera: !!choice.camera,
   });
 });
 
 ipcMain.handle('picker:region', (e, options) => {
   closePicker();
-  setTimeout(() => captureRegion('record', { mic: !!options.mic, systemAudio: !!options.systemAudio }), 150);
+  setTimeout(() => captureRegion('record', { mic: !!options.mic, systemAudio: !!options.systemAudio, camera: !!options.camera }), 150);
 });
 
 ipcMain.handle('picker:cancel', () => closePicker());
@@ -780,7 +1201,7 @@ ipcMain.handle('recorder:save', async (e, buffer, mime) => {
   if (recorderWin && !recorderWin.isDestroyed()) recorderWin.close();
   notifyLibrary();
   toast('Recording saved', path.basename(file), () => shell.showItemInFolder(file));
-  showHome();
+  openVideoEditor(file);
   return file;
 });
 
@@ -857,6 +1278,256 @@ ipcMain.handle('editor:saveAs', (e, buffer) => saveAs(e, buffer));
 
 ipcMain.handle('editor:copy', (e, buffer) => copyImageToClipboard(nativeImage.createFromBuffer(Buffer.from(buffer))));
 
+// Text (OCR) ----------------------------------------------------------------
+
+ipcMain.handle('text:config', async (e) => {
+  const job = textJobs.get(e.sender.id);
+  return job ? job : { text: '', error: 'Nothing to read.' };
+});
+ipcMain.handle('text:copy', (e, text) => { clipboard.writeText(String(text || '')); return true; });
+ipcMain.handle('editor:ocr', (e, buffer) => readText(nativeImage.createFromBuffer(Buffer.from(buffer))));
+ipcMain.handle('editor:pin', (e, buffer) => openPin(nativeImage.createFromBuffer(Buffer.from(buffer))));
+
+// Pinned captures -----------------------------------------------------------
+
+ipcMain.handle('pin:config', (e) => {
+  const pin = pins.get(e.sender.id);
+  return pin ? { bytes: pin.bytes, width: pin.width, height: pin.height } : null;
+});
+
+ipcMain.handle('pin:move', (e, dx, dy) => {
+  const win = senderWindow(e);
+  if (!win) return;
+  const [x, y] = win.getPosition();
+  win.setPosition(Math.round(x + dx), Math.round(y + dy));
+});
+
+ipcMain.handle('pin:zoom', (e, factor) => {
+  const win = senderWindow(e);
+  const pin = pins.get(e.sender.id);
+  if (!win || !pin) return;
+  const b = win.getBounds();
+  const wa = screen.getDisplayMatching(b).workArea;
+  let w = Math.round(b.width * factor);
+  w = Math.max(80, Math.min(w, Math.round(wa.width * 1.5)));
+  const h = Math.round(w / pin.aspect);
+  win.setBounds({ x: Math.round(b.x + (b.width - w) / 2), y: Math.round(b.y + (b.height - h) / 2), width: w, height: h });
+});
+
+ipcMain.handle('pin:menu', (e) => {
+  const win = senderWindow(e);
+  const pin = pins.get(e.sender.id);
+  if (!win || !pin) return;
+  const image = nativeImage.createFromBuffer(pin.bytes);
+  const setOpacity = (v) => win.setOpacity(v);
+  Menu.buildFromTemplate([
+    { label: 'Copy image', click: () => copyImageToClipboard(image) },
+    { label: 'Copy text in image', click: () => readText(image) },
+    { label: 'Open in editor', click: () => finishCapture(image) },
+    { type: 'separator' },
+    {
+      label: 'Opacity',
+      submenu: [1, 0.8, 0.6, 0.4].map((v) => ({ label: `${Math.round(v * 100)}%`, type: 'radio', checked: Math.abs(win.getOpacity() - v) < 0.01, click: () => setOpacity(v) })),
+    },
+    {
+      label: 'Actual size',
+      click: () => {
+        const d = screen.getDisplayMatching(win.getBounds());
+        const b = win.getBounds();
+        win.setBounds({ x: b.x, y: b.y, width: Math.round(pin.width / d.scaleFactor), height: Math.round(pin.height / d.scaleFactor) });
+      },
+    },
+    { type: 'separator' },
+    { label: 'Close', click: () => win.close() },
+    { label: 'Close all pinned captures', click: closeAllPins },
+  ]).popup({ window: win });
+});
+
+ipcMain.handle('pin:close', (e) => { const w = senderWindow(e); if (w) w.close(); });
+
+// Camera bubble -------------------------------------------------------------
+
+ipcMain.handle('camera:move', (e, dx, dy) => {
+  const win = senderWindow(e);
+  if (!win) return;
+  const [x, y] = win.getPosition();
+  win.setPosition(Math.round(x + dx), Math.round(y + dy));
+});
+
+ipcMain.handle('camera:size', (e, index) => {
+  const win = senderWindow(e);
+  if (!win) return CAMERA_SIZES[1];
+  const size = CAMERA_SIZES[((index % CAMERA_SIZES.length) + CAMERA_SIZES.length) % CAMERA_SIZES.length];
+  const b = win.getBounds();
+  // Grow and shrink around the bottom-left corner, where the bubble usually sits.
+  win.setBounds({ x: b.x, y: b.y + b.height - size, width: size, height: size });
+  return size;
+});
+
+ipcMain.handle('camera:close', () => closeCamera());
+
+// Step capture --------------------------------------------------------------
+
+ipcMain.handle('steps:config', async () => {
+  let sources = [];
+  try { sources = await getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }); } catch { /* fall back to screenshots */ }
+  const displays = screen.getAllDisplays();
+  return displays.map((d, i) => {
+    const src = sources.find((s) => s.display_id && s.display_id === String(d.id)) || sources[i];
+    return { displayId: String(d.id), sourceId: src ? src.id : null, pixelSize: displayPixelSize(d) };
+  });
+});
+
+ipcMain.handle('steps:frame', (e, { id, png, width }) => {
+  const s = stepSession;
+  if (!s || !s.pending.has(id)) return;
+  const { pt, display } = s.pending.get(id);
+  s.pending.delete(id);
+  addStep(Buffer.from(png), width / display.bounds.width, pt, display);
+});
+
+ipcMain.handle('steps:pause', (e, paused) => { if (stepSession) stepSession.paused = !!paused; });
+ipcMain.handle('steps:done', () => finishStepCapture(true));
+ipcMain.handle('steps:cancel', () => finishStepCapture(false));
+
+// Guides --------------------------------------------------------------------
+
+function guideDirFor(e) { return guides.get(e.sender.id); }
+
+function guideStepPath(dir, file) {
+  const full = path.join(dir, path.basename(String(file)));
+  return fs.existsSync(full) ? full : null;
+}
+
+ipcMain.handle('guide:config', (e) => {
+  const dir = guideDirFor(e);
+  const guide = dir && readGuide(dir);
+  if (!guide) return null;
+  return {
+    dir,
+    folder: path.basename(dir),
+    title: guide.title,
+    created: guide.created,
+    steps: guide.steps.map((step) => {
+      const full = path.join(dir, step.file);
+      let v = 0;
+      try { v = fs.statSync(full).mtimeMs; } catch { /* missing */ }
+      return { ...step, url: pathToFileURL(full).href + '?v=' + v };
+    }),
+  };
+});
+
+ipcMain.handle('guide:update', (e, update) => {
+  const dir = guideDirFor(e);
+  const guide = dir && readGuide(dir);
+  if (!guide) return false;
+  if (typeof update.title === 'string') guide.title = update.title.slice(0, 200);
+  if (Array.isArray(update.steps)) {
+    const known = new Map(guide.steps.map((s) => [s.file, s]));
+    guide.steps = update.steps
+      .filter((s) => known.has(s.file))
+      .map((s) => ({ ...known.get(s.file), title: String(s.title || '').slice(0, 300), text: String(s.text || '').slice(0, 4000) }));
+  }
+  writeGuide(dir, guide);
+  notifyLibrary();
+  return true;
+});
+
+ipcMain.handle('guide:mark', (e, { file, png }) => {
+  const dir = guideDirFor(e);
+  const guide = dir && readGuide(dir);
+  const full = dir && guideStepPath(dir, file);
+  if (!guide || !full) return false;
+  fs.writeFileSync(full, Buffer.from(png));
+  const step = guide.steps.find((s) => s.file === path.basename(full));
+  if (step) step.marked = true;
+  writeGuide(dir, guide);
+  return true;
+});
+
+ipcMain.handle('guide:image', (e, file) => {
+  const dir = guideDirFor(e);
+  const full = dir && guideStepPath(dir, file);
+  return full ? fs.readFileSync(full) : null;
+});
+
+ipcMain.handle('guide:edit', (e, file) => {
+  const dir = guideDirFor(e);
+  const full = dir && guideStepPath(dir, file);
+  if (full) openEditor(full);
+});
+
+ipcMain.handle('guide:remove', async (e, file) => {
+  const dir = guideDirFor(e);
+  const guide = dir && readGuide(dir);
+  const full = dir && guideStepPath(dir, file);
+  if (!guide || !full) return false;
+  guide.steps = guide.steps.filter((s) => s.file !== path.basename(full));
+  writeGuide(dir, guide);
+  await shell.trashItem(full).catch(() => {});
+  notifyLibrary();
+  return true;
+});
+
+ipcMain.handle('guide:reveal', (e) => { const dir = guideDirFor(e); if (dir) shell.openPath(dir); });
+
+ipcMain.handle('guide:export', async (e, format) => {
+  const dir = guideDirFor(e);
+  const guide = dir && readGuide(dir);
+  if (!guide) return { ok: false };
+  const win = senderWindow(e);
+  const safeTitle = (guide.title || 'Guide').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'Guide';
+  const ext = format === 'pdf' ? 'pdf' : 'html';
+  const res = await dialog.showSaveDialog(win, {
+    defaultPath: path.join(app.getPath('documents'), `${safeTitle}.${ext}`),
+    filters: [{ name: ext === 'pdf' ? 'PDF document' : 'Web page', extensions: [ext] }],
+  });
+  if (res.canceled || !res.filePath) return { ok: false };
+  const html = guideHtml(dir, guide);
+  if (ext === 'html') {
+    fs.writeFileSync(res.filePath, html);
+  } else {
+    const tmp = path.join(app.getPath('temp'), `loupe-guide-${Date.now()}.html`);
+    fs.writeFileSync(tmp, html);
+    const printer = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+    try {
+      await printer.loadFile(tmp);
+      const pdf = await printer.webContents.printToPDF({
+        pageSize: 'A4', printBackground: true,
+        margins: { top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+      });
+      fs.writeFileSync(res.filePath, pdf);
+    } finally {
+      printer.destroy();
+      fs.rm(tmp, { force: true }, () => {});
+    }
+  }
+  shell.showItemInFolder(res.filePath);
+  return { ok: true, name: path.basename(res.filePath) };
+});
+
+// Video editor --------------------------------------------------------------
+
+ipcMain.handle('video:config', (e) => {
+  const file = videoEditors.get(e.sender.id);
+  if (!file) return null;
+  return { file, name: path.basename(file), bytes: fs.readFileSync(file) };
+});
+
+ipcMain.handle('video:save', (e, { buffer, ext }) => {
+  const file = videoEditors.get(e.sender.id);
+  if (!file) return { ok: false };
+  const dir = isInLibrary(file) ? path.dirname(file) : libraryDir();
+  const base = path.basename(file, path.extname(file)).replace(/ \(edited( \d+)?\)$/, '');
+  const out = uniquePath(dir, `${base} (edited)`, ext === '.webm' ? '.webm' : '.mp4');
+  fs.writeFileSync(out, Buffer.from(buffer));
+  notifyLibrary();
+  return { ok: true, file: out, name: path.basename(out) };
+});
+
+ipcMain.handle('video:reveal', (e, file) => { if (isInLibrary(file)) shell.showItemInFolder(file); });
+ipcMain.handle('video:play', (e, file) => { if (isInLibrary(file)) shell.openPath(file); });
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -886,7 +1557,11 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('activate', showHome);
   app.on('before-quit', () => { quitting = true; });
-  app.on('will-quit', () => globalShortcut.unregisterAll());
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    if (stepSession) { try { stepSession.hook.stop(); } catch { /* ignore */ } }
+    ocr.shutdown();
+  });
   // Keep running in the tray when every window is closed, so the shortcuts keep working.
   app.on('window-all-closed', () => {});
 }

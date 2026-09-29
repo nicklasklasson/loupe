@@ -1135,6 +1135,17 @@ async function copy() {
 $('#save').addEventListener('click', () => save(false));
 $('#saveAs').addEventListener('click', () => save(true));
 $('#copy').addEventListener('click', copy);
+$('#pin').addEventListener('click', async () => {
+  if (!base) return;
+  await api.invoke('editor:pin', await exportBuffer());
+  setStatus('Pinned. Drag it anywhere; double-click or press Esc on it to close.');
+});
+$('#ocr').addEventListener('click', async () => {
+  if (!base) return;
+  setStatus('Reading text…');
+  await api.invoke('editor:ocr', await exportBuffer());
+  setStatus('');
+});
 $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
 $('#zoom').addEventListener('change', (e) => setZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value)));

@@ -1,7 +1,7 @@
 {
   "name": "loupe",
   "productName": "Loupe",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Screen capture, annotation and screen recording for the desktop.",
   "main": "main.js",
   "license": "MIT",
@@ -25,6 +25,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "ocr.js",
       "src/**/*",
       "assets/**/*"
     ],
@@ -44,8 +45,10 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Loupe uses the microphone only when you turn it on for a screen recording."
-      }
+        "NSMicrophoneUsageDescription": "Loupe uses the microphone only when you turn it on for a screen recording.",
+        "NSCameraUsageDescription": "Loupe shows your camera in a bubble only when you turn it on for a screen recording."
+      },
+      "x64ArchFiles": "**/node_modules/uiohook-napi/prebuilds/**"
     },
     "dmg": {
       "title": "Loupe"
@@ -72,7 +75,14 @@
       "icon": "assets/icon.png",
       "category": "Graphics"
     },
-    "afterSign": "build/adhoc-sign.js"
+    "asar": false,
+    "npmRebuild": false,
+    "afterPack": "build/adhoc-sign.js"
   },
-  "author": "Your team"
+  "author": "Your team",
+  "dependencies": {
+    "mediabunny": "^1.60.0",
+    "tesseract.js": "^7.0.0",
+    "uiohook-napi": "^1.5.5"
+  }
 }

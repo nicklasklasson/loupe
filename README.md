@@ -28,6 +28,8 @@ The first capture asks for Screen Recording permission. Turn it on in **System S
 | Capture a window | `Alt+Shift+2` |
 | Capture the full screen | `Alt+Shift+3` |
 | Record video | `Alt+Shift+R` |
+| Copy text from the screen | `Alt+Shift+T` |
+| Step capture | `Alt+Shift+S` |
 
 On macOS, `Alt` is the `⌥` Option key. You can change the shortcuts in the `HOTKEYS` object at the top of `main.js`. If another app already uses a shortcut, the home window shows it crossed out.
 
@@ -53,6 +55,16 @@ The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctr
 **Recording.** Pick a screen, a window, or **Select an area…**. You can include your microphone, and on Windows, computer sound. A small control bar counts down 3 seconds, then shows the timer with Pause, Stop and Discard buttons. When you record an area, a dashed outline marks it. Recordings are saved to the library folder as MP4 (H.264) when the system can record it, which is the case on current macOS and Windows, and as WebM otherwise.
 
 **Library.** The home window shows every capture and recording in the library folder, newest first. **Change folder…** picks where new captures and recordings are saved, and **Use default** goes back to `Pictures/Loupe`. Existing files stay where they are. If the chosen folder can't be reached, such as an unplugged drive, Loupe saves to `Pictures/Loupe` and says so. Click one to open it. When you hover over a tile you can show it in its folder or move it to the trash. The library also has **Open image…** and **Paste image**, which opens the clipboard image in the editor.
+
+**Copy text (OCR).** Press the shortcut and drag over any text on screen. Loupe reads it, copies it to the clipboard and shows it in a small window where you can correct it and copy again. **Copy text** in the editor reads the whole image. Recognition runs entirely on the computer, with English and Swedish built in (`assets/ocr`), so nothing is uploaded.
+
+**Pin.** **Pin** in the editor, on image tiles in the library, or in a pinned capture's own menu keeps a capture floating above other windows. Drag it to move it and scroll to zoom. Double-click or press `Esc` to close it. Right-click for copy, copy text, opacity, actual size and close all. **Close all pinned captures** is also in the tray menu.
+
+**Step capture.** Press the shortcut, then work through a task: every left click becomes a numbered screenshot showing the screen just before the click, with a ring where you clicked. **Pause** stops capturing for a moment, and **Done** opens the guide. There you name the guide, describe each step, reorder or delete steps, and click a screenshot to annotate, blur or crop it in the editor. **Export PDF…** and **Export web page…** produce a document with every step. Guides are saved as folders in the library and appear there with a "Guide" badge. On macOS, step capture needs **Accessibility** permission (System Settings > Privacy & Security > Accessibility), because Loupe has to notice clicks in other apps. It only listens while a step capture runs and never records typing.
+
+**Camera bubble.** Tick **Show camera** before recording and a round camera view appears on screen, so it's part of screen and area recordings. Drag it to move it; hover for size and hide buttons. A window recording only captures that window, so the bubble isn't in it. macOS asks for camera access the first time.
+
+**Video editor.** A recording opens in the video editor when you stop it; you can also click any video in the library. Choose a part to remove by dragging on the timeline, with **Set start here** / **Set end here** (`I` / `O`) at the playhead, or by typing times in **From** and **To** (for example `0:12` and `0:18.5`, then Enter). **Remove this part** cuts it out, and you can remove several parts. Playback skips removed parts so you can check the result. **Save as new video** writes `… (edited).mp4` next to the original, which stays unchanged. Saving normally takes seconds. If a video can't be processed that way, Loupe plays the kept parts back and re-records them instead, which takes as long as the result.
 
 ## Limitations
 
@@ -90,5 +102,12 @@ src/overlay.*    frozen-screen region selector with the magnifier
 src/picker.*     window/screen chooser for capture and recording
 src/editor.*     annotation editor
 src/recorder.*   recording control bar
+src/text.*       text from screen (OCR) result window
+src/pin.*        pinned captures
+src/camera.*     camera bubble
+src/steps.*      step capture control bar
+src/guide.*      step guide editor and export
+src/video.*      video editor; src/videocut.js does the cutting
+ocr.js           offline text recognition (main process)
 assets/          app and tray icons
 ```

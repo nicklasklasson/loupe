@@ -15,6 +15,8 @@
   .audio { display: flex; gap: 16px; padding: 0 26px 10px; color: var(--muted); }
   .audio label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .audio input { accent-color: var(--ink); }
+  .audio .camnote { color: var(--muted); font-size: var(--step--1); flex-basis: 100%; }
+  .audio { flex-wrap: wrap; }
   .audio label[hidden], .audio[hidden] { display: none; }
   .grid {
     flex: 1; overflow: auto; padding: 8px 26px 20px;
@@ -48,6 +50,8 @@
   <div class="audio" id="audio" hidden>
     <label><input type="checkbox" id="mic"> Record microphone</label>
     <label id="sysWrap"><input type="checkbox" id="sys"> Record computer sound</label>
+    <label><input type="checkbox" id="cam"> Show camera</label>
+    <span class="camnote" id="camNote" hidden>The camera bubble shows up in screen and area recordings. A window recording only captures that window.</span>
   </div>
   <div class="grid" id="grid"></div>
   <footer>

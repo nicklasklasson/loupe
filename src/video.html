@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Video editor</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  body { display: grid; grid-template-rows: auto 1fr auto auto; height: 100vh; background: var(--graphite); }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: var(--sheet); border-bottom: 1px solid var(--line); min-height: 54px;
+  }
+  .file { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .file .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file .dims { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+
+  .viewer { display: grid; place-items: center; min-height: 0; padding: 18px; }
+  video { max-width: 100%; max-height: 100%; background: #000; border-radius: 4px; box-shadow: 0 12px 40px rgba(0,0,0,0.35); }
+
+  .controls { background: var(--sheet); border-top: 1px solid var(--line); padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row .spacer { flex: 1; }
+  .time { font-variant-numeric: tabular-nums; min-width: 140px; }
+  #play { min-width: 74px; }
+
+  .track {
+    position: relative; height: 46px; border-radius: 6px; cursor: pointer;
+    background: #D9DEE5; border: 1px solid var(--line); overflow: hidden; touch-action: none;
+  }
+  .cut {
+    position: absolute; top: 0; bottom: 0; pointer-events: none;
+    background: repeating-linear-gradient(135deg, rgba(196, 50, 58, 0.55) 0 6px, rgba(196, 50, 58, 0.3) 6px 12px);
+    border-left: 1px solid var(--danger); border-right: 1px solid var(--danger);
+  }
+  .sel {
+    position: absolute; top: 0; bottom: 0; background: rgba(201, 146, 48, 0.28);
+    border: 2px solid var(--brass); border-radius: 3px; pointer-events: none;
+  }
+  .handle {
+    position: absolute; top: -1px; bottom: -1px; width: 12px; margin-left: -6px; cursor: ew-resize;
+    display: grid; place-items: center; z-index: 2;
+  }
+  .handle::after { content: ""; width: 6px; height: 60%; border-radius: 3px; background: var(--brass); box-shadow: 0 0 0 1px #fff; }
+  .playhead { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; z-index: 3; }
+  .playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: var(--ink); }
+  .ticks { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-top: -6px; }
+
+  label.t { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  label.t input {
+    width: 88px; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--r-s);
+    background: #fff; font-variant-numeric: tabular-nums; user-select: text;
+  }
+  label.t input:focus { outline: none; border-color: var(--brass); }
+  label.t input.bad { border-color: var(--danger); }
+  .len { color: var(--muted); font-variant-numeric: tabular-nums; }
+  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  button.danger:hover { background: #D5434B; }
+  .cuts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px;
+    background: #FBE9EA; border: 1px solid #EFC2C5; color: #7A1F25; font-size: var(--step--1); font-variant-numeric: tabular-nums;
+  }
+  .chip button { padding: 1px 8px; font-size: var(--step--1); border-radius: 999px; }
+
+  .status { display: flex; align-items: center; gap: 12px; padding: 6px 16px; background: var(--sheet); border-top: 1px solid var(--line); color: var(--muted); font-size: var(--step--1); min-height: 30px; }
+  .progress { width: 160px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .progress > div { height: 100%; width: 0; background: var(--brass); transition: width 120ms linear; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="file">
+      <span class="name" id="name">Recording</span>
+      <span class="dims" id="dims">Loading…</span>
+    </div>
+    <button class="quiet" id="reveal">Show in folder</button>
+    <button class="quiet" id="player">Open in player</button>
+    <button class="primary" id="save" disabled title="Save (Ctrl+S)">Save as new video</button>
+  </header>
+
+  <div class="viewer"><video id="video" preload="auto"></video></div>
+
+  <section class="controls">
+    <div class="row">
+      <button id="play" disabled>Play</button>
+      <span class="time" id="time">0:00.0 / 0:00.0</span>
+      <span class="spacer"></span>
+      <button id="markIn" title="Set the start of the part to remove at the playhead (I)">Set start here <kbd>I</kbd></button>
+      <button id="markOut" title="Set the end of the part to remove at the playhead (O)">Set end here <kbd>O</kbd></button>
+    </div>
+    <div class="track" id="track" aria-label="Timeline">
+      <div class="sel" id="sel" hidden></div>
+      <div class="handle" id="hIn" hidden title="Drag to adjust the start"></div>
+      <div class="handle" id="hOut" hidden title="Drag to adjust the end"></div>
+      <div class="playhead" id="playhead"></div>
+    </div>
+    <div class="ticks" id="ticks"></div>
+    <div class="row">
+      <label class="t">From <input id="from" placeholder="0:00" inputmode="decimal" aria-label="Remove from"></label>
+      <label class="t">To <input id="to" placeholder="0:00" inputmode="decimal" aria-label="Remove to"></label>
+      <span class="len" id="selLen"></span>
+      <button class="danger" id="remove" disabled title="Remove the selected part (Delete)">Remove this part</button>
+      <span class="spacer"></span>
+      <div class="cuts" id="cuts"></div>
+    </div>
+  </section>
+
+  <footer class="status">
+    <span id="status">Select a part with the handles, the From/To fields, or I and O, then remove it. Removed parts are skipped when you play.</span>
+    <span class="spacer" style="flex:1"></span>
+    <div class="progress" id="progress" hidden><div id="bar"></div></div>
+  </footer>
+
+<script type="module" src="video.js"></script>
+</body>
+</html>
