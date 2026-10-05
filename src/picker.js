@@ -56,8 +56,9 @@ async function load() {
       grid.appendChild(b);
     }
     const noun = type === 'window' ? 'window' : 'screen';
+    const timerNote = config.timer ? ` Loupe waits ${config.timer} seconds before capturing, so you can open a menu in it first.` : '';
     $('#status').textContent = sources.length
-      ? `${sources.length} ${noun}${sources.length === 1 ? '' : 's'}. Click one to ${config.mode === 'record' ? 'start recording' : 'capture it'}.`
+      ? `${sources.length} ${noun}${sources.length === 1 ? '' : 's'}. Click one to ${config.mode === 'record' ? 'start recording' : 'capture it'}.${timerNote}`
       : `No ${noun}s found. Minimized windows can't be captured; restore the window and refresh.`;
   } catch (err) {
     $('#status').textContent = 'Couldn\'t list sources: ' + err.message;

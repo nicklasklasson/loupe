@@ -67,8 +67,14 @@ const style = {
 // ---------------------------------------------------------------------------
 
 let base = null;          // canvas with the captured pixels (replaced on crop)
-let W = 0;
+let W = 0;            // size of the captured image
 let H = 0;
+// The canvas grows past the image when annotations reach outside it, like Snagit. OX/OY is where
+// the image sits inside the canvas; CW/CH is the canvas size. The extra area is transparent.
+let OX = 0;
+let OY = 0;
+let CW = 0;
+let CH = 0;
 let objects = [];
 let tool = 'arrow';
 let selected = null;
@@ -302,10 +308,11 @@ function drawStep(c, o) {
 
 function drawBlur(c, o) {
   const b = norm(o);
-  const x = Math.max(0, Math.floor(b.x));
-  const y = Math.max(0, Math.floor(b.y));
-  const w = Math.min(c.canvas.width, Math.ceil(b.x + b.w)) - x;
-  const h = Math.min(c.canvas.height, Math.ceil(b.y + b.h)) - y;
+  const t = c.getTransform(); // the image may be offset inside a larger canvas
+  const x = Math.max(0, Math.floor(b.x + t.e));
+  const y = Math.max(0, Math.floor(b.y + t.f));
+  const w = Math.min(c.canvas.width, Math.ceil(b.x + b.w + t.e)) - x;
+  const h = Math.min(c.canvas.height, Math.ceil(b.y + b.h + t.f)) - y;
   if (w < 1 || h < 1) return;
   const block = Math.max(2, o.strength);
   const sw = Math.max(1, Math.round(w / block));
@@ -316,8 +323,11 @@ function drawBlur(c, o) {
   s.imageSmoothingEnabled = true;
   s.imageSmoothingQuality = 'medium';
   s.drawImage(c.canvas, x, y, w, h, 0, 0, sw, sh);
+  c.save();
+  c.setTransform(1, 0, 0, 1, 0, 0);
   c.imageSmoothingEnabled = false;
   c.drawImage(scratch, 0, 0, sw, sh, x, y, w, h);
+  c.restore();
 }
 
 function drawObject(c, o) {
@@ -380,8 +390,49 @@ function drawObject(c, o) {
   c.restore();
 }
 
-function renderScene(c, forExport) {
-  c.clearRect(0, 0, W, H);
+// The area the canvas must cover: the image plus every annotation, with room for shadows.
+function contentBounds(includeDraft) {
+  let minX = 0;
+  let minY = 0;
+  let maxX = W;
+  let maxY = H;
+  const list = objects.slice();
+  if (includeDraft && draft) list.push(draft);
+  if (editing && !objects.includes(editing.obj) && editing.obj.text) list.push(editing.obj);
+  const m = 6 * U;
+  for (const o of list) {
+    const b = bounds(o);
+    minX = Math.min(minX, b.x - m);
+    minY = Math.min(minY, b.y - m);
+    maxX = Math.max(maxX, b.x + b.w + m);
+    maxY = Math.max(maxY, b.y + b.h + m);
+  }
+  minX = Math.floor(minX);
+  minY = Math.floor(minY);
+  return { ox: -minX, oy: -minY, cw: Math.ceil(maxX) - minX, ch: Math.ceil(maxY) - minY };
+}
+
+// Resize the canvas to fit everything. The zoom level stays the same, so nothing jumps while you drag.
+function layout(includeDraft = true) {
+  if (!base) return;
+  const L = contentBounds(includeDraft);
+  if (L.ox === OX && L.oy === OY && L.cw === CW && L.ch === CH) return;
+  OX = L.ox;
+  OY = L.oy;
+  CW = L.cw;
+  CH = L.ch;
+  canvas.width = CW;
+  canvas.height = CH;
+  canvas.style.width = `${CW * zoom}px`;
+  canvas.style.height = `${CH * zoom}px`;
+  $('#dims').textContent = CW === W && CH === H ? `${W} × ${H} px` : `${CW} × ${CH} px (image ${W} × ${H})`;
+  positionTextEditor();
+}
+
+function renderScene(c, forExport, ox = OX, oy = OY) {
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, c.canvas.width, c.canvas.height);
+  c.setTransform(1, 0, 0, 1, ox, oy);
   c.drawImage(base, 0, 0);
   for (const o of objects) {
     if (!forExport && editing && editing.obj === o) continue;
@@ -426,7 +477,7 @@ function drawCrop() {
   ctx.save();
   ctx.fillStyle = 'rgba(10, 14, 20, 0.55)';
   ctx.beginPath();
-  ctx.rect(0, 0, W, H);
+  ctx.rect(-OX, -OY, CW, CH);
   ctx.rect(b.x, b.y, b.w, b.h);
   ctx.fill('evenodd');
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
@@ -450,6 +501,7 @@ function render() {
   requestAnimationFrame(() => {
     frameRequested = false;
     if (!base) return;
+    layout(true);
     renderScene(ctx, false);
     drawSelection();
     drawCrop();
@@ -635,14 +687,14 @@ function wireProps() {
 function fitZoom() {
   const aw = Math.max(50, stage.clientWidth - 64);
   const ah = Math.max(50, stage.clientHeight - 64);
-  return Math.min(aw / W, ah / H, 1 / DPR);
+  return Math.min(aw / (CW || W), ah / (CH || H), 1 / DPR);
 }
 
 function applyZoom() {
   if (!W) return;
   zoom = zoomMode === 'fit' ? fitZoom() : zoomMode / DPR;
-  canvas.style.width = `${W * zoom}px`;
-  canvas.style.height = `${H * zoom}px`;
+  canvas.style.width = `${(CW || W) * zoom}px`;
+  canvas.style.height = `${(CH || H) * zoom}px`;
   const pct = Math.round(zoom * DPR * 100);
   $('#zoomLabel').textContent = `${pct}%`;
   const sel = $('#zoom');
@@ -670,9 +722,8 @@ function currentActualZoom() { return zoom * DPR; }
 function resizeToBase() {
   W = base.width;
   H = base.height;
-  canvas.width = W;
-  canvas.height = H;
-  $('#dims').textContent = `${W} × ${H} px`;
+  CW = 0; // force layout() to resize
+  layout(false);
   applyZoom();
 }
 
@@ -684,8 +735,8 @@ function positionTextEditor() {
   if (!editing) return;
   const o = editing.obj;
   const t = textLayout(o);
-  textEditor.style.left = `${(o.x - t.pad) * zoom}px`;
-  textEditor.style.top = `${(o.y - t.pad) * zoom}px`;
+  textEditor.style.left = `${(o.x + OX - t.pad) * zoom}px`;
+  textEditor.style.top = `${(o.y + OY - t.pad) * zoom}px`;
   textEditor.style.fontSize = `${o.size * zoom}px`;
   textEditor.style.padding = `${t.pad * zoom}px`;
   textEditor.style.color = o.fill ? contrastFor(o.color) : o.color;
@@ -694,7 +745,7 @@ function positionTextEditor() {
 }
 
 function openText(obj, isNew) {
-  editing = { obj, isNew, snap: snapshot() };
+  editing = { obj, isNew, snap: snapshot(), original: obj.text || '' };
   selected = obj;
   textEditor.value = obj.text || '';
   textEditor.hidden = false;
@@ -708,7 +759,7 @@ function openText(obj, isNew) {
 
 function commitText() {
   if (!editing) return;
-  const { obj, isNew, snap } = editing;
+  const { obj, isNew, snap, original } = editing;
   editing = null;
   textEditor.hidden = true;
   const text = textEditor.value.replace(/\s+$/, '');
@@ -716,7 +767,7 @@ function commitText() {
     if (!isNew) { objects = objects.filter((o) => o !== obj); pushSnap(snap); }
     selected = null;
   } else {
-    const changed = isNew || text !== obj.text;
+    const changed = isNew || text !== original;
     obj.text = text;
     if (isNew) objects.push(obj);
     if (changed) pushSnap(snap);
@@ -734,6 +785,12 @@ textEditor.addEventListener('keydown', (e) => {
   }
 });
 textEditor.addEventListener('blur', () => commitText());
+// Keep the text's size up to date while typing, so the canvas grows if it runs past the image.
+textEditor.addEventListener('input', () => {
+  if (!editing) return;
+  editing.obj.text = textEditor.value;
+  render();
+});
 textEditor.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // ---------------------------------------------------------------------------
@@ -749,9 +806,9 @@ function showCropBar() {
 }
 
 function clampToImage(b) {
-  const x = Math.max(0, Math.round(b.x));
-  const y = Math.max(0, Math.round(b.y));
-  return { x, y, w: Math.min(W, Math.round(b.x + b.w)) - x, h: Math.min(H, Math.round(b.y + b.h)) - y };
+  const x = Math.max(-OX, Math.round(b.x));
+  const y = Math.max(-OY, Math.round(b.y));
+  return { x, y, w: Math.min(CW - OX, Math.round(b.x + b.w)) - x, h: Math.min(CH - OY, Math.round(b.y + b.h)) - y };
 }
 
 function cancelCrop() {
@@ -767,11 +824,29 @@ function applyCrop() {
   showCropBar();
   if (b.w < 2 || b.h < 2) { render(); return; }
   pushSnap(snapshot());
+  // Annotations entirely inside the crop stay editable. Ones that cross the edge are cut off and
+  // merged into the image (so the canvas doesn't grow straight back); ones outside are dropped.
+  const inside = (o) => {
+    const ob = bounds(o);
+    return ob.x >= b.x - 1 && ob.y >= b.y - 1 && ob.x + ob.w <= b.x + b.w + 1 && ob.y + ob.h <= b.y + b.h + 1;
+  };
+  const overlaps = (o) => {
+    const ob = bounds(o);
+    return ob.x < b.x + b.w && ob.x + ob.w > b.x && ob.y < b.y + b.h && ob.y + ob.h > b.y;
+  };
   const next = document.createElement('canvas');
   next.width = b.w;
   next.height = b.h;
-  next.getContext('2d').drawImage(base, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+  const nctx = next.getContext('2d');
+  nctx.setTransform(1, 0, 0, 1, -b.x, -b.y);
+  nctx.drawImage(base, 0, 0);
+  const kept = [];
+  for (const o of objects) {
+    if (inside(o)) kept.push(o);
+    else if (overlaps(o)) drawObject(nctx, o);
+  }
   base = next;
+  objects = kept;
   objects.forEach((o) => translate(o, -b.x, -b.y));
   selected = null;
   zoomMode = 'fit';
@@ -789,7 +864,17 @@ $('#cropCancel').addEventListener('click', cancelCrop);
 
 function toImage(e) {
   const r = canvas.getBoundingClientRect();
-  return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
+  return {
+    x: ((e.clientX - r.left) * canvas.width) / r.width - OX,
+    y: ((e.clientY - r.top) * canvas.height) / r.height - OY,
+  };
+}
+
+// Clicks on the stage's scrollbars or the crop bar aren't drawing.
+function isDrawingClick(e) {
+  if (e.target.closest && e.target.closest('.cropbar, textarea')) return false;
+  const r = stage.getBoundingClientRect();
+  return e.clientX - r.left < stage.clientWidth && e.clientY - r.top < stage.clientHeight;
 }
 
 function newObject(type, p) {
@@ -821,19 +906,19 @@ function constrainBox(ax, ay, p) {
   return { x: ax + Math.sign(p.x - ax || 1) * size, y: ay + Math.sign(p.y - ay || 1) * size };
 }
 
-canvas.addEventListener('pointerdown', (e) => {
-  if (!base) return;
+stage.addEventListener('pointerdown', (e) => {
+  if (!base || !isDrawingClick(e)) return;
   if (editing) { commitText(); return; }
   const p = toImage(e);
 
   if (e.button === 1 || spaceDown) {
     drag = { mode: 'pan', sx: e.clientX, sy: e.clientY, left: stage.scrollLeft, top: stage.scrollTop };
-    canvas.setPointerCapture(e.pointerId);
+    stage.setPointerCapture(e.pointerId);
     updateCursor();
     return;
   }
   if (e.button !== 0) return;
-  canvas.setPointerCapture(e.pointerId);
+  stage.setPointerCapture(e.pointerId);
 
   const handle = tool !== 'crop' ? handleAt(p) : null;
   if (handle) {
@@ -895,7 +980,7 @@ canvas.addEventListener('pointerdown', (e) => {
   render();
 });
 
-canvas.addEventListener('pointermove', (e) => {
+stage.addEventListener('pointermove', (e) => {
   if (!base) return;
   const p = toImage(e);
   if (!drag) { updateCursor(p); return; }
@@ -989,18 +1074,14 @@ function endDrag() {
   render();
 }
 
-canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', endDrag);
+stage.addEventListener('pointerup', endDrag);
+stage.addEventListener('pointercancel', endDrag);
 
-canvas.addEventListener('dblclick', (e) => {
+stage.addEventListener('dblclick', (e) => {
   const hit = topObjectAt(toImage(e));
   if (hit && hit.type === 'text') openText(hit, false);
 });
 
-stage.addEventListener('pointerdown', (e) => {
-  // Clicking the empty workspace around the image clears the selection.
-  if (e.target === stage) { commitText(); selected = null; updateProps(); render(); }
-});
 
 stage.addEventListener('wheel', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -1010,17 +1091,17 @@ stage.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 function updateCursor(p) {
-  if (drag && drag.mode === 'pan') { canvas.style.cursor = 'grabbing'; return; }
-  if (spaceDown) { canvas.style.cursor = 'grab'; return; }
+  if (drag && drag.mode === 'pan') { stage.style.cursor = 'grabbing'; return; }
+  if (spaceDown) { stage.style.cursor = 'grab'; return; }
   if (p) {
     const h = tool !== 'crop' ? handleAt(p) : null;
     if (h) {
-      canvas.style.cursor = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' }[h.id] || 'grab';
+      stage.style.cursor = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' }[h.id] || 'grab';
       return;
     }
-    if (tool === 'select') { canvas.style.cursor = topObjectAt(p) ? 'move' : 'default'; return; }
+    if (tool === 'select') { stage.style.cursor = topObjectAt(p) ? 'move' : 'default'; return; }
   }
-  canvas.style.cursor = tool === 'text' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
+  stage.style.cursor = tool === 'text' ? 'text' : tool === 'select' ? 'default' : 'crosshair';
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,10 +1177,11 @@ function setStatus(text) {
 
 async function exportBuffer() {
   commitText();
+  layout(false);
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
-  renderScene(c.getContext('2d'), true);
+  c.width = CW;
+  c.height = CH;
+  renderScene(c.getContext('2d'), true, OX, OY);
   const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/png'));
   return blob.arrayBuffer();
 }
@@ -1150,7 +1232,13 @@ $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
 $('#zoom').addEventListener('change', (e) => setZoom(e.target.value === 'fit' ? 'fit' : Number(e.target.value)));
 
-new ResizeObserver(() => { if (zoomMode === 'fit') applyZoom(); }).observe(stage);
+// Re-fit when the window is resized. (Not on every change in the workspace's size: scrollbars
+// appearing as the canvas grows would otherwise change the zoom mid-drag.)
+let fitTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => { if (zoomMode === 'fit' && !drag) applyZoom(); }, 60);
+});
 
 // ---------------------------------------------------------------------------
 // Start

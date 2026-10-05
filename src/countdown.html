@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'">
+<title>Countdown</title>
+<link rel="stylesheet" href="base.css">
+<style>
+  html, body { background: transparent; overflow: hidden; user-select: none; cursor: default; }
+  body { display: grid; place-items: center; height: 100vh; }
+  .box {
+    width: 112px; height: 112px; border-radius: 22px; background: rgba(28, 36, 48, 0.92);
+    box-shadow: 0 0 0 3px #C99230, 0 10px 30px rgba(0, 0, 0, 0.35);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  }
+  #n { font-family: var(--font-display); font-size: 58px; line-height: 1; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+  .hint { color: #B7C1CE; font-size: 11px; }
+</style>
+</head>
+<body>
+  <div class="box"><div id="n">3</div><div class="hint">Esc cancels</div></div>
+</body>
+</html>

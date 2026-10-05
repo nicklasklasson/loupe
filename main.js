@@ -299,8 +299,165 @@ function finishCapture(image) {
   openEditor(file, { copied: copyImageToClipboard(image) });
 }
 
+// ---------------------------------------------------------------------------
+// Self-timer: an optional countdown before a capture, per action
+// ---------------------------------------------------------------------------
+
+const TIMER_DEFAULTS = { region: false, window: false, fullscreen: false, text: false, record: true };
+const TIMER_LENGTHS = [3, 5, 10];
+
+function timerSettings() {
+  const s = readSettings();
+  return {
+    timer: { ...TIMER_DEFAULTS, ...(s.timer || {}) },
+    seconds: TIMER_LENGTHS.includes(s.timerSeconds) ? s.timerSeconds : 3,
+  };
+}
+
+// Seconds to wait before the given action captures, or 0 for no timer.
+function timerDelay(action) {
+  const t = timerSettings();
+  return t.timer[action] ? t.seconds : 0;
+}
+
+function timerChanged() {
+  buildTrayMenu();
+  buildAppMenu();
+  if (homeWin && !homeWin.isDestroyed()) homeWin.webContents.send('timer:changed');
+}
+
+function setTimer(action, on) {
+  if (!(action in TIMER_DEFAULTS)) return;
+  const t = timerSettings();
+  t.timer[action] = !!on;
+  writeSettings({ timer: t.timer });
+  timerChanged();
+}
+
+function setTimerSeconds(seconds) {
+  if (!TIMER_LENGTHS.includes(seconds)) return;
+  writeSettings({ timerSeconds: seconds });
+  timerChanged();
+}
+
+function timerSubmenu() {
+  const t = timerSettings();
+  const item = (action, label) => ({
+    label, type: 'checkbox', checked: t.timer[action], click: (mi) => setTimer(action, mi.checked),
+  });
+  return [
+    item('region', 'Region'),
+    item('window', 'Window'),
+    item('fullscreen', 'Full screen'),
+    item('text', 'Copy text'),
+    item('record', 'Recording countdown'),
+    { type: 'separator' },
+    ...TIMER_LENGTHS.map((n) => ({ label: `${n} seconds`, type: 'radio', checked: t.seconds === n, click: () => setTimerSeconds(n) })),
+  ];
+}
+
+// A dashed outline marking an area of the screen. Click-through, and kept out of captures.
+function makeOutline(display, rect) {
+  const pad = 4;
+  const win = new BrowserWindow({
+    x: Math.round(display.bounds.x + rect.x - pad),
+    y: Math.round(display.bounds.y + rect.y - pad),
+    width: Math.round(rect.width + pad * 2),
+    height: Math.round(rect.height + pad * 2),
+    frame: false, transparent: true, resizable: false, movable: false, focusable: false,
+    skipTaskbar: true, hasShadow: false, alwaysOnTop: true, show: false, enableLargerThanScreen: true,
+    webPreferences: { contextIsolation: true, sandbox: true },
+  });
+  win.setIgnoreMouseEvents(true);
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setContentProtection(true);
+  const html = '<html><head><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'"></head>'
+    + '<body style="margin:0;height:100vh;box-sizing:border-box;border:2px dashed #C99230;border-radius:3px;background:transparent"></body></html>';
+  win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
+  return win;
+}
+
+let countdownActive = false;
+
+/**
+ * Show a countdown, then resolve true; or false if Esc was pressed. While it runs you can use the
+ * computer normally (open a menu, hover over something). The countdown and the area outline are
+ * removed just before resolving, so they never end up in the capture.
+ */
+function runCountdown(seconds, display, rect) {
+  return new Promise((resolve) => {
+    countdownActive = true;
+    const S = 132;
+    const wa = display.workArea;
+    // Keep the countdown out of the way of the area being captured: top centre of the screen,
+    // or bottom centre if the area covers the top.
+    let x = Math.round(wa.x + (wa.width - S) / 2);
+    let y = Math.round(wa.y + 16);
+    if (rect) {
+      const top = display.bounds.y + rect.y;
+      const left = display.bounds.x + rect.x;
+      const overlapsTop = top < y + S + 8 && left < x + S && left + rect.width > x;
+      if (overlapsTop) y = Math.round(wa.y + wa.height - S - 16);
+    }
+    const win = new BrowserWindow({
+      x, y, width: S, height: S,
+      frame: false, transparent: true, resizable: false, movable: false, focusable: false,
+      skipTaskbar: true, hasShadow: false, alwaysOnTop: true, show: false,
+      webPreferences: { contextIsolation: true, sandbox: true },
+    });
+    win.setIgnoreMouseEvents(true);
+    win.setAlwaysOnTop(true, 'screen-saver');
+    win.setContentProtection(true);
+    if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    const outline = rect ? makeOutline(display, rect) : null;
+
+    let left = seconds;
+    let done = false;
+    let escBound = false;
+    const show = () => {
+      if (!win.isDestroyed()) win.webContents.executeJavaScript(`document.getElementById('n').textContent = ${left}`).catch(() => {});
+    };
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearInterval(tick);
+      if (escBound) globalShortcut.unregister('Escape');
+      if (!win.isDestroyed()) win.destroy();
+      if (outline && !outline.isDestroyed()) outline.destroy();
+      countdownActive = false;
+      // Give the window server a moment to remove them before the screenshot is taken.
+      setTimeout(() => resolve(ok), isMac ? 160 : 100);
+    };
+    try { escBound = globalShortcut.register('Escape', () => finish(false)); } catch { escBound = false; }
+
+    win.loadFile(path.join(__dirname, 'src', 'countdown.html')).then(() => {
+      show();
+      if (!win.isDestroyed()) win.showInactive();
+    }).catch(() => {});
+    const tick = setInterval(() => {
+      left -= 1;
+      if (left <= 0) finish(true);
+      else show();
+    }, 1000);
+  });
+}
+
+// Crop a full-screen capture to an area given in screen points.
+function cropToRect(image, display, rect) {
+  const size = image.getSize();
+  const ratio = size.width / display.bounds.width;
+  const x = Math.max(0, Math.round(rect.x * ratio));
+  const y = Math.max(0, Math.round(rect.y * ratio));
+  return image.crop({
+    x, y,
+    width: Math.max(1, Math.min(size.width - x, Math.round(rect.width * ratio))),
+    height: Math.max(1, Math.min(size.height - y, Math.round(rect.height * ratio))),
+  });
+}
+
 async function captureRegion(mode = 'capture', recordOptions = {}) {
-  if (busy || !ensureScreenAccess()) return;
+  if (busy || countdownActive || !ensureScreenAccess()) return;
   busy = true;
   let restore = () => {};
   try {
@@ -318,12 +475,14 @@ async function captureRegion(mode = 'capture', recordOptions = {}) {
 }
 
 async function captureFullscreen() {
-  if (busy || !ensureScreenAccess()) return;
+  if (busy || countdownActive || !ensureScreenAccess()) return;
   busy = true;
   let restore = () => {};
   try {
     const display = cursorDisplay();
     restore = await hideOwnWindows();
+    const seconds = timerDelay('fullscreen');
+    if (seconds && !(await runCountdown(seconds, display, null))) { restore(); return; }
     const { image } = await grabDisplay(display);
     restore();
     finishCapture(image);
@@ -356,7 +515,7 @@ function showHome() {
 
 function createHome() {
   homeWin = new BrowserWindow({
-    width: 1040, height: 680, minWidth: 760, minHeight: 500,
+    width: 1040, height: 780, minWidth: 760, minHeight: 520,
     title: 'Loupe', backgroundColor: '#EEF1F4', show: false,
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: webPreferences(),
@@ -898,6 +1057,12 @@ function buildTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
   tray.setToolTip('Loupe');
+  buildTrayMenu();
+  tray.on('click', () => { if (!isMac) showHome(); });
+}
+
+function buildTrayMenu() {
+  if (!tray) return;
   const menu = Menu.buildFromTemplate([
     { label: 'Capture region', accelerator: HOTKEYS.region, click: () => captureRegion() },
     { label: 'Capture window', accelerator: HOTKEYS.window, click: captureWindow },
@@ -905,6 +1070,7 @@ function buildTray() {
     { label: 'Record screen', accelerator: HOTKEYS.record, click: startRecording },
     { label: 'Copy text from screen', accelerator: HOTKEYS.text, click: captureText },
     { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
+    { label: 'Timer', submenu: timerSubmenu() },
     { type: 'separator' },
     { label: 'Close all pinned captures', click: closeAllPins },
     { type: 'separator' },
@@ -914,7 +1080,6 @@ function buildTray() {
     { label: 'Quit Loupe', click: () => { quitting = true; app.quit(); } },
   ]);
   tray.setContextMenu(menu);
-  tray.on('click', () => { if (!isMac) showHome(); });
 }
 
 function buildAppMenu() {
@@ -930,6 +1095,7 @@ function buildAppMenu() {
         { label: 'Record screen', accelerator: HOTKEYS.record, click: startRecording },
         { label: 'Copy text from screen', accelerator: HOTKEYS.text, click: captureText },
         { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
+        { label: 'Timer', submenu: timerSubmenu() },
         { type: 'separator' },
         { label: 'Close all pinned captures', click: closeAllPins },
       ],
@@ -997,6 +1163,9 @@ ipcMain.handle('capture:window', () => captureWindow());
 ipcMain.handle('capture:fullscreen', () => captureFullscreen());
 ipcMain.handle('record:start', () => startRecording());
 ipcMain.handle('capture:text', () => captureText());
+ipcMain.handle('timer:get', () => timerSettings());
+ipcMain.handle('timer:set', (e, action, on) => setTimer(action, on));
+ipcMain.handle('timer:seconds', (e, seconds) => setTimerSeconds(Number(seconds)));
 ipcMain.handle('steps:start', () => startStepCapture());
 
 ipcMain.handle('capture:clipboard', () => {
@@ -1075,6 +1244,7 @@ ipcMain.handle('overlay:config', () => {
   const { image, display, mode } = pendingRegion;
   return {
     mode,
+    timer: mode === 'capture' ? timerDelay('region') : mode === 'ocr' ? timerDelay('text') : 0,
     jpeg: image.toJPEG(92),
     width: display.bounds.width,
     height: display.bounds.height,
@@ -1090,18 +1260,28 @@ ipcMain.handle('overlay:done', (e, rect) => {
   if (!rect) { p.restore(); return; }
 
   if (p.mode === 'capture' || p.mode === 'ocr') {
-    const size = p.image.getSize();
-    const ratio = size.width / p.display.bounds.width;
-    const x = Math.max(0, Math.round(rect.x * ratio));
-    const y = Math.max(0, Math.round(rect.y * ratio));
-    const crop = {
-      x, y,
-      width: Math.max(1, Math.min(size.width - x, Math.round(rect.width * ratio))),
-      height: Math.max(1, Math.min(size.height - y, Math.round(rect.height * ratio))),
+    const deliver = (image) => {
+      p.restore();
+      if (p.mode === 'ocr') readText(cropToRect(image, p.display, rect));
+      else finishCapture(cropToRect(image, p.display, rect));
     };
-    p.restore();
-    if (p.mode === 'ocr') readText(p.image.crop(crop));
-    else finishCapture(p.image.crop(crop));
+    const seconds = timerDelay(p.mode === 'ocr' ? 'text' : 'region');
+    if (!seconds) { deliver(p.image); return; }
+    // With the timer on, the screen stays usable during the countdown, then the area is captured
+    // as it looks at that moment (an open menu, a hover state…).
+    busy = true;
+    (async () => {
+      try {
+        if (!(await runCountdown(seconds, p.display, rect))) { p.restore(); return; }
+        const { image } = await grabDisplay(p.display);
+        deliver(image);
+      } catch (err) {
+        p.restore();
+        handleCaptureError(err);
+      } finally {
+        busy = false;
+      }
+    })();
   } else {
     openRecorder({
       sourceId: p.sourceId,
@@ -1116,7 +1296,11 @@ ipcMain.handle('overlay:done', (e, rect) => {
 
 // Source picker ------------------------------------------------------------
 
-ipcMain.handle('picker:config', () => ({ ...pickerConfig, platform: process.platform }));
+ipcMain.handle('picker:config', () => ({
+  ...pickerConfig,
+  platform: process.platform,
+  timer: pickerConfig && pickerConfig.mode === 'capture' ? timerDelay('window') : 0,
+}));
 
 ipcMain.handle('sources:list', async (e, types) => {
   const ours = new Set(BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId()));
@@ -1151,6 +1335,13 @@ ipcMain.handle('picker:choose', async (e, choice) => {
 
   if (config.mode === 'capture') {
     try {
+      const seconds = timerDelay('window');
+      if (seconds) {
+        busy = true;
+        const ok = await runCountdown(seconds, cursorDisplay(), null);
+        busy = false;
+        if (!ok) return;
+      }
       const sources = await getSources({
         types: [choice.kind], thumbnailSize: largestDisplaySize(),
       });
@@ -1188,6 +1379,7 @@ ipcMain.handle('recorder:config', () => {
   const { sourceId, kind, rect, mic, systemAudio, display } = recorderConfig;
   return {
     sourceId, kind, rect, mic, systemAudio,
+    countdown: timerDelay('record'),
     platform: process.platform,
     displaySize: { width: display.bounds.width, height: display.bounds.height },
     pixelSize: kind === 'screen' ? displayPixelSize(display) : largestDisplaySize(),
@@ -1235,10 +1427,25 @@ ipcMain.handle('editor:dirty', (e, dirty) => {
   if (win && state) win.setTitle(`${dirty ? '• ' : ''}${path.basename(state.file)} — Loupe`);
 });
 
+// JPEG has no transparency, so put the transparent area around an extended capture on white.
+function flattenOnWhite(image) {
+  const { width, height } = image.getSize();
+  const px = Buffer.from(image.toBitmap()); // BGRA or RGBA; either way alpha is the 4th byte
+  for (let i = 0; i < px.length; i += 4) {
+    const a = px[i + 3] / 255;
+    if (a === 1) continue;
+    px[i] = Math.round(px[i] * a + 255 * (1 - a));
+    px[i + 1] = Math.round(px[i + 1] * a + 255 * (1 - a));
+    px[i + 2] = Math.round(px[i + 2] * a + 255 * (1 - a));
+    px[i + 3] = 255;
+  }
+  return nativeImage.createFromBitmap(px, { width, height });
+}
+
 function writeImage(file, buffer) {
   const ext = path.extname(file).toLowerCase();
   if (ext === '.jpg' || ext === '.jpeg') {
-    fs.writeFileSync(file, nativeImage.createFromBuffer(Buffer.from(buffer)).toJPEG(90));
+    fs.writeFileSync(file, flattenOnWhite(nativeImage.createFromBuffer(Buffer.from(buffer))).toJPEG(90));
   } else {
     fs.writeFileSync(file, Buffer.from(buffer));
   }

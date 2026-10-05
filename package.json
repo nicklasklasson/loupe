@@ -1,7 +1,7 @@
 {
   "name": "loupe",
   "productName": "Loupe",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Screen capture, annotation and screen recording for the desktop.",
   "main": "main.js",
   "license": "MIT",

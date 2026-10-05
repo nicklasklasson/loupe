@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const INVOKE = new Set([
   'app:info', 'app:permissionHelp',
   'capture:region', 'capture:window', 'capture:fullscreen', 'capture:clipboard', 'capture:openFile',
-  'record:start', 'capture:text', 'steps:start',
+  'record:start', 'capture:text', 'steps:start', 'timer:get', 'timer:set', 'timer:seconds',
   'text:config', 'text:copy', 'editor:ocr', 'editor:pin',
   'pin:config', 'pin:move', 'pin:zoom', 'pin:menu', 'pin:close',
   'camera:move', 'camera:size', 'camera:close',
@@ -20,7 +20,7 @@ const INVOKE = new Set([
   'editor:config', 'editor:dirty', 'editor:save', 'editor:saveAs', 'editor:copy',
 ]);
 
-const EVENTS = new Set(['library:changed', 'steps:grab', 'steps:count']);
+const EVENTS = new Set(['library:changed', 'steps:grab', 'steps:count', 'timer:changed']);
 
 contextBridge.exposeInMainWorld('loupe', {
   invoke(channel, ...args) {

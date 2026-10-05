@@ -33,6 +33,28 @@ $('#paste').addEventListener('click', async () => {
   if (!res.ok) showNotice(res.reason);
 });
 
+// Timer switches -------------------------------------------------------------
+
+async function renderTimers() {
+  const t = await api.invoke('timer:get');
+  document.querySelectorAll('.timer').forEach((row) => {
+    const action = row.dataset.action;
+    const box = row.querySelector('input');
+    box.checked = !!t.timer[action];
+    const label = row.querySelector('.tlabel');
+    label.textContent = action === 'record'
+      ? (box.checked ? `${t.seconds} s countdown` : 'Countdown off')
+      : (box.checked ? `${t.seconds} s timer` : 'Timer');
+  });
+  $('#timerSeconds').value = String(t.seconds);
+}
+
+document.querySelectorAll('.timer').forEach((row) => {
+  row.querySelector('input').addEventListener('change', (e) => api.invoke('timer:set', row.dataset.action, e.target.checked));
+});
+$('#timerSeconds').addEventListener('change', (e) => api.invoke('timer:seconds', Number(e.target.value)));
+api.on('timer:changed', renderTimers);
+
 function showNotice(text) {
   const el = $('#notice');
   el.innerHTML = '';
@@ -168,6 +190,7 @@ async function init() {
     if (hk && !hk.ok) { k.title = 'Another app is using this shortcut'; k.style.textDecoration = 'line-through'; }
   });
   renderLibrary();
+  renderTimers();
 }
 
 api.on('library:changed', renderLibrary);

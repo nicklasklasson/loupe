@@ -155,7 +155,8 @@ async function start() {
 
   desktop.getVideoTracks()[0].addEventListener('ended', () => stop(true));
 
-  const ok = await countdown(3);
+  // The countdown follows the "Countdown" switch under Record video (on by default).
+  const ok = await countdown(Number.isFinite(cfg.countdown) ? cfg.countdown : 3);
   if (!ok) return;
 
   mime = pickMime(audioTracks.length > 0);

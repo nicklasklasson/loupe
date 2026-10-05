@@ -31,6 +31,8 @@ The first capture asks for Screen Recording permission. Turn it on in **System S
 | Copy text from the screen | `Alt+Shift+T` |
 | Step capture | `Alt+Shift+S` |
 
+**Timer.** Under each action in the Loupe window there's a **Timer** switch; the same switches are under **Timer** in the menu bar/tray menu. With it on, Loupe waits before capturing, so you can open a menu, hover over something or click something first. **Timer length** (3, 5 or 10 seconds) applies to all of them. For **Region** and **Copy text**, you choose the area first; then the countdown runs with the area outlined, and the area is captured as it looks when the countdown ends. **Full screen** counts down before capturing; **Window** counts down after you pick the window. Under **Record video** the switch is the 3-second countdown before recording starts (on by default). **Esc** cancels a countdown. Step capture has no timer, because it captures the moment of each click.
+
 On macOS, `Alt` is the `⌥` Option key. You can change the shortcuts in the `HOTKEYS` object at the top of `main.js`. If another app already uses a shortcut, the home window shows it crossed out.
 
 ## What it does
@@ -49,6 +51,8 @@ Every capture is saved as a PNG to your library folder, copied to your clipboard
 - `H` Highlighter.
 - `B` Blur: pixelates whatever is under the box, such as emails, card numbers or names.
 - `C` Crop: drag over the part to keep, then press `Enter`.
+
+Annotations can go past the edge of the screenshot. You can even start drawing in the dark area around it, and the canvas grows to fit them, like in Snagit, so nothing is cut off. The extra area is transparent: it shows as a checkerboard in the editor, stays transparent when you copy or save as PNG, and becomes white in a JPEG. Cropping cuts through annotations that cross the crop edge.
 
 The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctrl+0` to fit, `Ctrl+1` for 100%, or `Ctrl` + mouse wheel). Hold `Space` and drag to pan. `Ctrl+C` copies the annotated image, `Ctrl+S` saves over the capture in the library, and `Ctrl+Shift+S` saves a PNG or JPEG anywhere. Opening an image from outside the library never overwrites it, because Save makes a copy.
 

@@ -206,11 +206,14 @@ async function init() {
   const config = await api.invoke('overlay:config');
   if (!config) { finish(null); return; }
   mode = config.mode;
+  const timerNote = config.timer
+    ? ` Then you have ${config.timer} seconds to open a menu or hover before it's captured.`
+    : '';
   hint.innerHTML = mode === 'record'
     ? 'Drag over the area to record. <kbd>Enter</kbd> records the whole screen, <kbd>Esc</kbd> cancels.'
     : mode === 'ocr'
-      ? 'Drag over the text you want to copy. <kbd>Esc</kbd> cancels.'
-      : 'Drag to capture an area. Click or press <kbd>Enter</kbd> for the whole screen, <kbd>Esc</kbd> cancels.';
+      ? `Drag over the text you want to copy.${timerNote} <kbd>Esc</kbd> cancels.`
+      : `Drag to capture an area, or press <kbd>Enter</kbd> for the whole screen.${timerNote} <kbd>Esc</kbd> cancels.`;
 
   const blob = new Blob([config.jpeg], { type: 'image/jpeg' });
   const url = URL.createObjectURL(blob);
