@@ -2,23 +2,23 @@
 
 A desktop screen capture, annotation and screen recording tool, built with Electron. It runs on Windows, macOS and Linux (X11).
 
-## Get it running
+## Installing on a Mac
 
-1. Install [Node.js](https://nodejs.org) 18 or newer.
-2. Unzip this folder, open a terminal in it and run:
+You don't need Node.js, npm or a terminal to use Loupe. Download the installer, drag, done.
 
-```
-npm install
-npm start
-```
+1. Download `Loupe-<version>-universal.dmg` from the [Releases page](https://github.com/nicklasklasson/loupe/releases/latest). It runs on Apple Silicon and Intel Macs.
+2. Open the dmg and drag Loupe to Applications. On a PaymentIQ Mac this needs **Administrator Mode**: request it in the PaymentIQ Self Service app first.
+3. The first launch is blocked with *"Apple could not verify Loupe is free of malware"*. Click **Done**, then go to System Settings > Privacy & Security and click **Open Anyway**. If that button doesn't appear, run this in Terminal instead (also needs Administrator Mode):
 
-Loupe opens its main window and puts an icon in the system tray (the menu bar on macOS). Closing the window keeps Loupe running in the tray, so the shortcuts keep working. To quit, use **Quit Loupe** in the tray menu.
+   ```
+   xattr -dr com.apple.quarantine /Applications/Loupe.app
+   ```
 
-Most people don't need any of this: see "Installing on a Mac" below for the ready-made dmg, and "Releasing a new version" for how it's built.
+4. Allow **Screen Recording** for Loupe when asked, and **Accessibility** if you use step capture, then restart it. From 0.3.0 on these permissions survive updates, because every version is signed with the same Loupe certificate.
 
-### macOS permission
+**Updates.** Loupe checks GitHub once a day and tells you when there's a newer version (switch this off in the updates window if you like). **Check for Updates…** in the Loupe menu and the tray menu shows what's new and installs it: Loupe downloads the dmg, checks it's signed with the same Loupe certificate, swaps itself out and restarts. Installing needs Administrator Mode, like the first install. The warning in step 3 doesn't come back for updates Loupe installs itself.
 
-The first capture asks for Screen Recording permission. Turn it on in **System Settings > Privacy & Security > Screen Recording**, then quit and restart Loupe. While you run it with `npm start`, the entry is called **Electron**.
+**Coming from 0.2.x?** Drag the new Loupe over the old one (Replace), do step 3, then open Screen Recording, select the old Loupe entry, remove it with the **−** button, and allow Loupe again when it asks (quit and reopen once). The setting looks switched on already, but that entry belongs to the old build. Same for Accessibility if you use step capture. This is a one-time thing: later versions arrive through Check for Updates… and keep the permissions.
 
 ## Shortcuts
 
@@ -86,21 +86,29 @@ The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctr
 - On Linux, Wayland sessions limit screen capture. X11 works best.
 - On most systems the recording bar and area outline are kept out of the video. On older Windows builds (before 10 version 2004) the recording bar can still show up in full-screen recordings.
 
-## Installing on a Mac
+## For developers
 
-1. Download `Loupe-<version>-universal.dmg` from the [Releases page](https://github.com/nicklasklasson/loupe/releases/latest). It runs on Apple Silicon and Intel Macs.
-2. Open the dmg and drag Loupe to Applications. On a PaymentIQ Mac this needs **Administrator Mode**: request it in the PaymentIQ Self Service app first.
-3. The first launch is blocked with *"Apple could not verify Loupe is free of malware"*. Click **Done**, then go to System Settings > Privacy & Security and click **Open Anyway**. If that button doesn't appear, run this in Terminal instead (also needs Administrator Mode):
+The rest of this page is about building and changing Loupe.
 
-   ```
-   xattr -dr com.apple.quarantine /Applications/Loupe.app
-   ```
+### Running from source
 
-4. Allow **Screen Recording** for Loupe when asked, and **Accessibility** if you use step capture, then restart it. From 0.3.0 on these permissions survive updates, because every version is signed with the same Loupe certificate.
+Only needed if you want to change Loupe. To use it, install the dmg instead (see the top of this page).
 
-**Updates.** Loupe checks GitHub once a day and tells you when there's a newer version (switch this off in the updates window if you like). **Check for Updates…** in the Loupe menu and the tray menu shows what's new and installs it: Loupe downloads the dmg, checks it's signed with the same Loupe certificate, swaps itself out and restarts. Installing needs Administrator Mode, like the first install. The warning in step 3 doesn't come back for updates Loupe installs itself.
+1. Install [Node.js](https://nodejs.org) 18 or newer.
+2. Clone the repository, open a terminal in it and run:
 
-## Releasing a new version
+```
+npm install
+npm start
+```
+
+Loupe opens its main window and puts an icon in the system tray (the menu bar on macOS). Closing the window keeps Loupe running in the tray, so the shortcuts keep working. To quit, use **Quit Loupe** in the tray menu.
+
+#### macOS permission
+
+The first capture asks for Screen Recording permission. Turn it on in **System Settings > Privacy & Security > Screen Recording**, then quit and restart Loupe. While you run it with `npm start`, the entry is called **Electron**.
+
+### Releasing a new version
 
 Nobody builds Loupe on their own Mac: GitHub Actions builds the dmg and attaches it to a release.
 
@@ -115,7 +123,7 @@ Running it again for a version that was never released moves the tag and rebuild
 
 See `docs/ENGINEERING.md` for how the pipeline works and what to check when it doesn't.
 
-## Project layout
+### Project layout
 
 ```
 main.js          main process: tray, shortcuts, capture pipeline, windows, file saving
