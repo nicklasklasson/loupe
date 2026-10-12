@@ -14,7 +14,7 @@ const INVOKE = new Set([
   'steps:config', 'steps:frame', 'steps:pause', 'steps:done', 'steps:cancel',
   'guide:config', 'guide:image', 'guide:update', 'guide:mark', 'guide:edit', 'guide:remove', 'guide:reveal', 'guide:export',
   'video:config', 'video:save', 'video:reveal', 'video:play',
-  'library:play', 'library:pin',
+  'library:play', 'library:pin', 'library:copy', 'window:close',
   'library:list', 'library:open', 'library:reveal', 'library:folder', 'library:trash', 'library:choose', 'library:resetFolder',
   'overlay:config', 'overlay:done',
   'picker:config', 'picker:choose', 'picker:region', 'picker:cancel', 'sources:list',

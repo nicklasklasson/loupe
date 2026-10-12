@@ -1226,6 +1226,8 @@ function buildAppMenu() {
         { label: 'Close all pinned captures', click: closeAllPins },
       ],
     },
+    // File holds Close so ⌘W closes the front window (captures, pins, guides). Nothing else lives here.
+    { label: 'File', submenu: [{ role: 'close' }] },
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]));
@@ -1427,6 +1429,14 @@ ipcMain.handle('library:open', (e, file) => {
   else if (VIDEO_EXT.has(ext)) openVideoEditor(file);
 });
 ipcMain.handle('library:play', (e, file) => { if (isInLibrary(file)) shell.openPath(file); });
+// Copy from a library tile: the image goes on the clipboard without opening it.
+ipcMain.handle('library:copy', (e, file) => {
+  if (!isInLibrary(file)) return false;
+  const image = nativeImage.createFromPath(file);
+  return !image.isEmpty() && copyImageToClipboard(image);
+});
+// Close the window a page runs in, going through the normal close handling (unsaved changes etc.).
+ipcMain.handle('window:close', (e) => { const win = senderWindow(e); if (win && !win.isDestroyed()) win.close(); return true; });
 ipcMain.handle('library:pin', (e, file) => {
   if (!isInLibrary(file)) return;
   const image = nativeImage.createFromPath(file);

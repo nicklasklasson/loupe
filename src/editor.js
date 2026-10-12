@@ -1128,6 +1128,7 @@ window.addEventListener('keydown', (e) => {
     if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
     if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); return; }
     if (k === 's') { e.preventDefault(); save(e.shiftKey); return; }
+    if (k === 'w') { e.preventDefault(); api.invoke('window:close'); return; } // menu-less platforms; on macOS File › Close does it
     if (k === 'c' && !typing && !window.getSelection().toString()) { e.preventDefault(); copy(); return; }
     if (k === '0') { e.preventDefault(); setZoom('fit'); return; }
     if (k === '1') { e.preventDefault(); setZoom(1); return; }

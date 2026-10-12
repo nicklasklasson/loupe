@@ -167,6 +167,16 @@ async function renderLibrary() {
     trash.title = 'Move to trash';
     trash.addEventListener('click', (e) => { e.stopPropagation(); api.invoke('library:trash', item.file); });
     if (item.kind === 'image') {
+      const copy = document.createElement('button');
+      copy.textContent = 'Copy';
+      copy.title = 'Copy the image to the clipboard';
+      copy.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await api.invoke('library:copy', item.file);
+        copy.textContent = ok ? 'Copied' : 'Failed';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+      });
+      tools.append(copy);
       const pin = document.createElement('button');
       pin.textContent = 'Pin';
       pin.title = 'Keep on top of other windows';

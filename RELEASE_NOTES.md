@@ -1,10 +1,6 @@
-Mac installer for Loupe 0.3.1. If you have 0.3.0: choose **Check for Updates…** in the Loupe menu (Administrator Mode), then **Install and restart**. From an older version: drag Loupe to Applications, Privacy & Security › **Open Anyway**, and allow Screen Recording once more; after that the permission survives updates.
+Mac installer for Loupe 0.3.2. If you have 0.3.x: choose **Check for Updates…** in the Loupe menu (Administrator Mode), then **Install and restart**. From an older version: see *Loupe - Install and quick start.pdf* below.
 
-**Fixed**
+**New**
 
-- The running dot under Loupe's Dock icon disappeared after every capture (and while a pinned capture or the camera bubble was open), even though Loupe was running in the menu bar. Loupe now puts the Dock back in order when the capture overlay, countdown, pins and camera bubble are gone.
-
-**From 0.3.0**
-
-- Capture windows close themselves: Copy closes the window, untouched windows close after 2 minutes in the background (adjustable), Save / Don't Save / Keep Editing for edited ones, and *Close all capture windows* in the menus.
-- Check for Updates… with a daily check and self-install; every build signed with the same Loupe certificate so permissions survive updates.
+- **Copy** on library tiles: hover over a capture in the home window and click Copy to put it on the clipboard without opening it. Next to Pin, Show and Delete.
+- **⌘W closes windows** (captures, pins, guides, the home window). It's in the new File menu, so it works everywhere in Loupe; on Windows, Ctrl+W closes a capture window.
