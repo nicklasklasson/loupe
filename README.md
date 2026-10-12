@@ -14,7 +14,7 @@ npm start
 
 Loupe opens its main window and puts an icon in the system tray (the menu bar on macOS). Closing the window keeps Loupe running in the tray, so the shortcuts keep working. To quit, use **Quit Loupe** in the tray menu.
 
-To build an installer to share with colleagues, run `npm run dist:mac` (a `.dmg`) or `npm run dist:win` (a `.exe` installer). The output goes to `dist/`. See "Sharing Loupe" below.
+Most people don't need any of this: see "Installing on a Mac" below for the ready-made dmg, and "Releasing a new version" for how it's built.
 
 ### macOS permission
 
@@ -56,6 +56,13 @@ Annotations can go past the edge of the screenshot. You can even start drawing i
 
 The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctrl+0` to fit, `Ctrl+1` for 100%, or `Ctrl` + mouse wheel). Hold `Space` and drag to pan. `Ctrl+C` copies the annotated image, `Ctrl+S` saves over the capture in the library, and `Ctrl+Shift+S` saves a PNG or JPEG anywhere. Opening an image from outside the library never overwrites it, because Save makes a copy.
 
+**Capture windows close themselves.** Every capture is already in your library and on your clipboard, so an open capture window rarely needs to stay around:
+
+- **Copy closes the window.** You copy because you're off to paste the image somewhere; the window gets out of the way. Switch this off with **Close capture after Copy** in the home window if you prefer.
+- **Untouched windows close on their own** after they have sat in the background for a while: 2 minutes unless you pick 30 seconds, 10 minutes or never under **Close untouched captures after**. A window you're looking at is never closed, and the timer restarts whenever you come back to it.
+- **Edited captures are never closed by the timer.** When you close one yourself (or copy from it), Loupe asks **Save / Don't Save / Keep Editing**. Save writes the annotated capture to your library (a copy, for images opened from elsewhere); Don't Save keeps the original as it was.
+- **Close all capture windows** in the tray and Capture menus closes everything at once, asking about unsaved changes along the way.
+
 **Recording.** Pick a screen, a window, or **Select an area…**. You can include your microphone, and on Windows, computer sound. A small control bar counts down 3 seconds, then shows the timer with Pause, Stop and Discard buttons. When you record an area, a dashed outline marks it. Recordings are saved to the library folder as MP4 (H.264) when the system can record it, which is the case on current macOS and Windows, and as WebM otherwise.
 
 **Library.** The home window shows every capture and recording in the library folder, newest first. **Change folder…** picks where new captures and recordings are saved, and **Use default** goes back to `Pictures/Loupe`. Existing files stay where they are. If the chosen folder can't be reached, such as an unplugged drive, Loupe saves to `Pictures/Loupe` and says so. Click one to open it. When you hover over a tile you can show it in its folder or move it to the trash. The library also has **Open image…** and **Paste image**, which opens the clipboard image in the editor.
@@ -79,22 +86,34 @@ The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctr
 - On Linux, Wayland sessions limit screen capture. X11 works best.
 - On most systems the recording bar and area outline are kept out of the video. On older Windows builds (before 10 version 2004) the recording bar can still show up in full-screen recordings.
 
-## Sharing Loupe
+## Installing on a Mac
 
-- **Mac:** `npm run dist:mac` builds `dist/Loupe-0.1.0-universal.dmg`, which runs on Apple Silicon and Intel Macs.
-- **Windows:** `npm run dist:win` builds `dist/Loupe Setup 0.1.0.exe`. Build it on a Windows PC for the most reliable result.
+1. Download `Loupe-<version>-universal.dmg` from the [Releases page](https://github.com/nicklasklasson/loupe/releases/latest). It runs on Apple Silicon and Intel Macs.
+2. Open the dmg and drag Loupe to Applications. On a PaymentIQ Mac this needs **Administrator Mode**: request it in the PaymentIQ Self Service app first.
+3. The first launch is blocked with *"Apple could not verify Loupe is free of malware"*. Click **Done**, then go to System Settings > Privacy & Security and click **Open Anyway**. If that button doesn't appear, run this in Terminal instead (also needs Administrator Mode):
 
-Bump `version` in `package.json` before each new build you send out.
+   ```
+   xattr -dr com.apple.quarantine /Applications/Loupe.app
+   ```
 
-Unsigned builds work, but each colleague has to approve them once:
+4. Allow **Screen Recording** for Loupe when asked, and **Accessibility** if you use step capture, then restart it. From 0.3.0 on these permissions survive updates, because every version is signed with the same Loupe certificate.
 
-- **Mac:** open the `.dmg` and drag Loupe to Applications. The first launch is blocked. Go to System Settings > Privacy & Security, click **Open Anyway**, then allow Screen Recording for **Loupe** and restart it.
-- **Windows:** SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**.
+**Updates.** Loupe checks GitHub once a day and tells you when there's a newer version (switch this off in the updates window if you like). **Check for Updates…** in the Loupe menu and the tray menu shows what's new and installs it: Loupe downloads the dmg, checks it's signed with the same Loupe certificate, swaps itself out and restarts. Installing needs Administrator Mode, like the first install. The warning in step 3 doesn't come back for updates Loupe installs itself.
 
-To remove those warnings, sign the builds:
+## Releasing a new version
 
-- **Mac:** you need an Apple Developer account and a "Developer ID Application" certificate in your keychain. Set `"notarize": true` under `build.mac` in `package.json`. Then set `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in your environment and run `npm run dist:mac`.
-- **Windows:** you need a code-signing certificate. See the electron-builder code signing docs.
+Nobody builds Loupe on their own Mac: GitHub Actions builds the dmg and attaches it to a release.
+
+1. Raise `version` in `package.json` and write `RELEASE_NOTES.md` (it becomes the release's notes).
+2. Run `./release.sh`. It commits, pushes, tags `v<version>`, waits for the build (about 10 minutes), says whether the build was signed with the Loupe certificate, then downloads the dmg to `~/Downloads` and opens it. Needs git and the GitHub CLI (`gh`), nothing else.
+
+Running it again for a version that was never released moves the tag and rebuilds, so a failed build isn't a problem.
+
+**Signing certificate (one-time).** Run `bash build/make-signing-cert.sh` once. It creates the self-signed "Loupe Signing" certificate, stores it as repository secrets (`LOUPE_SIGNING_P12`, `LOUPE_SIGNING_PASSWORD`) and keeps a backup in `~/Documents/Loupe signing certificate`; move that to 1Password. GitHub can't show secrets again, so the backup is the only copy. The certificate is what lets macOS keep the Screen Recording and Accessibility permissions across updates and lets Loupe trust its own updates. It doesn't remove the first-launch warning; only a paid Apple Developer ID with notarization does that.
+
+**Windows:** `npm run dist:win` on a Windows PC builds `dist/Loupe Setup <version>.exe`. SmartScreen shows "Windows protected your PC"; click **More info**, then **Run anyway**. Windows builds aren't signed and don't self-update.
+
+See `docs/ENGINEERING.md` for how the pipeline works and what to check when it doesn't.
 
 ## Project layout
 
@@ -112,6 +131,9 @@ src/camera.*     camera bubble
 src/steps.*      step capture control bar
 src/guide.*      step guide editor and export
 src/video.*      video editor; src/videocut.js does the cutting
+src/update.*     Check for Updates window; src/updater.js downloads, verifies and installs
 ocr.js           offline text recognition (main process)
 assets/          app and tray icons
+build/           signing hook, packaging check, certificate and Electron setup scripts
+release.sh       publishes the version in package.json via GitHub Actions
 ```

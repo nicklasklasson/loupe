@@ -1212,7 +1212,16 @@ async function copy() {
     }
   }
   setStatus(ok ? 'Copied to the clipboard.' : 'Couldn\'t copy to the clipboard. Use Save as, then drag the file into Slack.');
+  // Copied means you're off to paste it somewhere: the window closes itself (a setting on the
+  // home window). Unsaved annotations are asked about first.
+  if (ok) api.invoke('editor:copied');
 }
+
+// "Save" in the close question: save (Save As when the file isn't Loupe's own), then close.
+api.on('editor:save-and-close', async () => {
+  await save(false);
+  if (!dirty) api.invoke('editor:close');
+});
 
 $('#save').addEventListener('click', () => save(false));
 $('#saveAs').addEventListener('click', () => save(true));

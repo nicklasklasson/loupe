@@ -55,6 +55,16 @@ document.querySelectorAll('.timer').forEach((row) => {
 $('#timerSeconds').addEventListener('change', (e) => api.invoke('timer:seconds', Number(e.target.value)));
 api.on('timer:changed', renderTimers);
 
+// Closing capture windows ----------------------------------------------------
+
+function renderClosing(c) {
+  $('#closeAfterCopy').checked = !!c.closeAfterCopy;
+  $('#autoClose').value = String(c.autoCloseSeconds);
+}
+$('#closeAfterCopy').addEventListener('change', (e) => api.invoke('closing:set', { closeAfterCopy: e.target.checked }));
+$('#autoClose').addEventListener('change', (e) => api.invoke('closing:set', { autoCloseSeconds: Number(e.target.value) }));
+api.on('closing:changed', renderClosing);
+
 function showNotice(text) {
   const el = $('#notice');
   el.innerHTML = '';
@@ -191,6 +201,7 @@ async function init() {
   });
   renderLibrary();
   renderTimers();
+  renderClosing(await api.invoke('closing:get'));
 }
 
 api.on('library:changed', renderLibrary);

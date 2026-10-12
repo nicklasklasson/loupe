@@ -56,6 +56,12 @@
   .timer input:focus-visible + .track { outline: 2px solid var(--brass); outline-offset: 2px; }
   .timerlen { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 6px 0; color: var(--muted); font-size: var(--step--1); }
   .timerlen select { border: 1px solid var(--line); border-radius: var(--r-s); background: #fff; padding: 3px 6px; color: var(--ink); }
+
+  /* Closing capture windows */
+  .closing { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .closing .timer.close-copy { margin: 0 6px 6px; }
+  .closing .timerlen { margin-top: 6px; }
+  .closing .fine { margin: 6px 6px 0; color: var(--muted); font-size: var(--step--1); line-height: 1.35; }
   .secondary { margin-top: auto; padding-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
   .secondary button { flex: 1; }
 
@@ -157,6 +163,19 @@
         <option value="10">10 seconds</option>
       </select>
     </label>
+
+    <div class="closing">
+      <label class="timer close-copy"><input type="checkbox" role="switch" id="closeAfterCopy"><span class="track" aria-hidden="true"></span><span class="tlabel">Close capture after Copy</span></label>
+      <label class="timerlen">Close untouched captures after
+        <select id="autoClose" aria-label="Close untouched capture windows after">
+          <option value="0">never</option>
+          <option value="30">30 seconds</option>
+          <option value="120">2 minutes</option>
+          <option value="600">10 minutes</option>
+        </select>
+      </label>
+      <p class="fine">A capture window you haven't annotated closes on its own once it has been in the background that long. Edited captures stay open until you save or close them.</p>
+    </div>
 
     <div class="secondary">
       <button id="openFile">Open image…</button>

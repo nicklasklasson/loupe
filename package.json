@@ -1,15 +1,22 @@
 {
   "name": "loupe",
   "productName": "Loupe",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Screen capture, annotation and screen recording for the desktop.",
   "main": "main.js",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicklasklasson/loupe.git"
+  },
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "postinstall": "node build/ensure-electron.js",
+    "setup:electron": "node build/ensure-electron.js",
+    "check:packaged": "node build/check-packaged.js dist/mac-universal/Loupe.app"
   },
   "devDependencies": {
     "electron": "^32.2.0",

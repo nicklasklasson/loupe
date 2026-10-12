@@ -1,0 +1,98 @@
+# Builds the Mac installer on GitHub's Mac machines and attaches it to a GitHub Release.
+#
+# Runs when a version tag is pushed (./release.sh does that),
+# or by hand from the Actions tab. Nobody needs Node.js, npm or Xcode on their own Mac.
+
+name: Build Mac installer
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to create the release and upload the dmg
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      # Set once with build/make-signing-cert.sh. Without them the app is signed ad hoc.
+      LOUPE_SIGNING_P12: ${{ secrets.LOUPE_SIGNING_P12 }}
+      LOUPE_SIGNING_PASSWORD: ${{ secrets.LOUPE_SIGNING_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check the tag matches package.json
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $VERSION"
+            exit 1
+          fi
+
+      - name: Install (Electron and the app's modules)
+        run: npm install --no-audit --no-fund
+
+      - name: Check the native module prebuilds are in place
+        run: ls -la node_modules/uiohook-napi/prebuilds/
+
+      - name: Load the Loupe signing certificate
+        if: env.LOUPE_SIGNING_P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/loupe-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$LOUPE_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/loupe-signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/loupe-signing.p12" -k "$KEYCHAIN" -P "$LOUPE_SIGNING_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # A self-signed certificate isn't trusted by default; trust it on this build machine only,
+          # so codesign accepts it.
+          security find-certificate -c "Loupe Signing" -p "$KEYCHAIN" > "$RUNNER_TEMP/loupe-signing.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/loupe-signing.pem"
+          HASH=$(security find-certificate -c "Loupe Signing" -Z "$KEYCHAIN" | awk '/SHA-1 hash:/ {print $3}')
+          [ -n "$HASH" ] || { echo "::error::The Loupe signing certificate couldn't be loaded"; exit 1; }
+          echo "LOUPE_SIGN_IDENTITY=$HASH" >> "$GITHUB_ENV"
+          echo "LOUPE_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/loupe-signing.p12"
+          echo "Signing with certificate $HASH"
+
+      - name: Build the dmg
+        # --publish never: the next step publishes the release. Without it, electron-builder tries
+        # to publish to GitHub itself when it sees a tag, and fails for lack of a token.
+        run: npm run dist:mac -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # no Developer ID: the afterPack hook signs instead
+
+      - name: Check the app contains every file it needs
+        run: node build/check-packaged.js dist/mac-universal/Loupe.app
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VERSION"
+          DMG=$(ls dist/*.dmg | head -1)
+          FILES=("$DMG")
+          # Guides as PDF, if any, shown under their own names (GitHub turns spaces into dots).
+          for f in docs/*.pdf; do [ -f "$f" ] && FILES+=("$f#$(basename "$f")"); done
+          if [ -f RELEASE_NOTES.md ]; then
+            cp RELEASE_NOTES.md notes.md
+          else
+            echo "Mac installer for Loupe $VERSION. First launch: System Settings › Privacy & Security › Open Anyway." > notes.md
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" "${FILES[@]}" --title "Loupe $VERSION" --notes-file notes.md
+          fi

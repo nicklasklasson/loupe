@@ -7,6 +7,13 @@ const {
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const { Updater } = require('./src/updater');
+
+// Where releases live, for Check for Updates. Taken from package.json so a fork updates from itself.
+const UPDATE_REPO = (() => {
+  const url = (require('./package.json').repository || {}).url || '';
+  return (/github\.com[/:]([^/]+\/[^/.]+)/.exec(url) || [])[1] || 'nicklasklasson/loupe';
+})();
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -34,13 +41,15 @@ let pickerWin = null;
 let recorderWin = null;
 let frameWin = null;
 let tray = null;
+let updateWin = null;
+let updater = null;
 let quitting = false;
 let busy = false;
 
 let pendingRegion = null;   // state shared with the region overlay
 let pickerConfig = null;    // state shared with the source picker
 let recorderConfig = null;  // state shared with the recorder bar
-const editors = new Map();  // webContents.id -> { file, dirty }
+const editors = new Map();  // webContents.id -> { file, dirty, copied, owned, idleTimer, dialogOpen }
 const registeredKeys = {};
 
 const webPreferences = (extra = {}) => ({
@@ -72,6 +81,55 @@ function writeSettings(patch) {
 }
 
 function defaultLibraryDir() { return path.join(app.getPath('pictures'), 'Loupe'); }
+
+// How capture windows close by themselves, so a day of captures doesn't end with a screen full
+// of them. Copy closes the window (the image is on the clipboard; that's what you wanted it
+// for), and a window nobody has touched closes after sitting unfocused for a while. A window
+// with unsaved changes is never closed by the timer, only asked about when you close it.
+const AUTO_CLOSE_CHOICES = [0, 30, 120, 600]; // seconds; 0 = off
+const CLOSING_DEFAULTS = { closeAfterCopy: true, autoCloseSeconds: 120 };
+
+function closingSettings() {
+  const s = readSettings();
+  return {
+    closeAfterCopy: typeof s.closeAfterCopy === 'boolean' ? s.closeAfterCopy : CLOSING_DEFAULTS.closeAfterCopy,
+    autoCloseSeconds: AUTO_CLOSE_CHOICES.includes(s.autoCloseSeconds) ? s.autoCloseSeconds : CLOSING_DEFAULTS.autoCloseSeconds,
+  };
+}
+
+function setClosing(patch) {
+  const next = {};
+  if (typeof patch.closeAfterCopy === 'boolean') next.closeAfterCopy = patch.closeAfterCopy;
+  if (AUTO_CLOSE_CHOICES.includes(Number(patch.autoCloseSeconds))) next.autoCloseSeconds = Number(patch.autoCloseSeconds);
+  writeSettings(next);
+  const settings = closingSettings();
+  if (homeWin && !homeWin.isDestroyed()) homeWin.webContents.send('closing:changed', settings);
+  // A shorter timer applies to windows already waiting; a longer one or Off lets them wait again.
+  for (const state of editors.values()) {
+    const win = BrowserWindow.fromId(state.winId);
+    if (!win || win.isDestroyed()) continue;
+    stopIdleTimer(state);
+    if (!win.isFocused()) startIdleTimer(win, state);
+  }
+  return settings;
+}
+
+function stopIdleTimer(state) {
+  if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = null; }
+}
+
+// Starts the countdown for an untouched capture window that just lost focus.
+function startIdleTimer(win, state) {
+  stopIdleTimer(state);
+  const seconds = closingSettings().autoCloseSeconds;
+  if (!seconds || state.dirty) return;
+  state.idleTimer = setTimeout(() => {
+    state.idleTimer = null;
+    if (win.isDestroyed() || win.isFocused() || state.dirty || state.dialogOpen) return;
+    if (closingSettings().autoCloseSeconds !== seconds) return; // the setting changed meanwhile
+    win.close();
+  }, seconds * 1000);
+}
 
 // A chosen folder must already exist and be writable. Loupe never creates it, so a folder on an
 // unplugged drive or disconnected share is reported as unreachable instead of being silently
@@ -583,22 +641,45 @@ function openEditor(file, { copied = false } = {}) {
     webPreferences: webPreferences(),
   });
   const id = win.webContents.id;
-  editors.set(id, { file, dirty: false, copied, owned: isInLibrary(file) });
+  const state = { file, dirty: false, copied, owned: isInLibrary(file), winId: win.id, idleTimer: null, dialogOpen: false };
+  editors.set(id, state);
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', (e) => e.preventDefault());
   win.loadFile(path.join(__dirname, 'src', 'editor.html'));
   win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  // Untouched windows close on their own after a while in the background; see closingSettings.
+  win.on('blur', () => startIdleTimer(win, state));
+  win.on('focus', () => stopIdleTimer(state));
   win.on('close', (e) => {
-    const state = editors.get(id);
-    if (quitting || !state || !state.dirty) return;
-    const choice = dialog.showMessageBoxSync(win, {
-      type: 'question', buttons: ['Keep editing', 'Close without saving'], defaultId: 0, cancelId: 0,
-      message: 'This capture has changes you haven\'t saved.',
-      detail: 'Closing now discards the changes. The original capture stays in your library.',
-    });
-    if (choice === 0) e.preventDefault();
+    if (quitting || !state.dirty) return;
+    if (state.dialogOpen) { e.preventDefault(); return; } // a Save As sheet is up: finish that first
+    state.dialogOpen = true;
+    let choice;
+    try {
+      choice = dialog.showMessageBoxSync(win, {
+        type: 'question', buttons: ['Save', 'Don\'t Save', 'Keep Editing'], defaultId: 0, cancelId: 2,
+        message: 'Do you want to save the changes to this capture?',
+        detail: state.owned
+          ? 'Save writes the annotated capture to your library. Don\'t Save keeps the original as it was.'
+          : 'Save creates a copy; the original image stays untouched.',
+      });
+    } finally {
+      state.dialogOpen = false;
+    }
+    if (choice === 1) { state.dirty = false; return; } // close goes ahead
+    e.preventDefault();
+    // Save and close: the editor saves (Save As when the file isn't Loupe's own), then asks to
+    // close again, which no longer prompts because the window is clean.
+    if (choice === 0) win.webContents.send('editor:save-and-close');
   });
-  win.on('closed', () => editors.delete(id));
+  win.on('closed', () => { stopIdleTimer(state); editors.delete(id); });
+}
+
+function closeAllEditors() {
+  for (const state of editors.values()) {
+    const win = BrowserWindow.fromId(state.winId);
+    if (win && !win.isDestroyed()) win.close();
+  }
 }
 
 function openRecorder(config) {
@@ -1072,20 +1153,48 @@ function buildTrayMenu() {
     { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
     { label: 'Timer', submenu: timerSubmenu() },
     { type: 'separator' },
+    { label: 'Close all capture windows', click: closeAllEditors },
     { label: 'Close all pinned captures', click: closeAllPins },
     { type: 'separator' },
     { label: 'Open Loupe', click: showHome },
     { label: 'Open captures folder', click: () => shell.openPath(libraryDir()) },
     { type: 'separator' },
+    ...updateMenuItems(),
     { label: 'Quit Loupe', click: () => { quitting = true; app.quit(); } },
   ]);
   tray.setContextMenu(menu);
 }
 
+// "Update to Loupe x.y.z…" once a newer version is known, and Check for Updates… always.
+function updateMenuItems() {
+  if (!isMac) return []; // self-update is Mac-only for now (dmg from GitHub)
+  const u = updater ? updater.state : null;
+  return [
+    ...(u && u.available ? [{ label: `Update to Loupe ${u.latest}…`, click: () => openUpdate() }] : []),
+    { label: 'Check for Updates…', click: () => openUpdate(true) },
+    { type: 'separator' },
+  ];
+}
+
+function rebuildMenus() { buildAppMenu(); buildTrayMenu(); }
+
 function buildAppMenu() {
   if (!isMac) { Menu.setApplicationMenu(null); return; }
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { role: 'appMenu' },
+    {
+      label: 'Loupe',
+      submenu: [
+        { role: 'about', label: 'About Loupe' },
+        ...updateMenuItems(),
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide', label: 'Hide Loupe' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit', label: 'Quit Loupe' },
+      ],
+    },
     {
       label: 'Capture',
       submenu: [
@@ -1097,12 +1206,88 @@ function buildAppMenu() {
         { label: 'Step capture', accelerator: HOTKEYS.steps, click: startStepCapture },
         { label: 'Timer', submenu: timerSubmenu() },
         { type: 'separator' },
+        { label: 'Close all capture windows', click: closeAllEditors },
         { label: 'Close all pinned captures', click: closeAllPins },
       ],
     },
     { role: 'editMenu' },
     { role: 'windowMenu' },
   ]));
+}
+
+// ---------------------------------------------------------------------------
+// Updates (Mac): a daily look at GitHub, a notification once per new version, and a small
+// window to download and install it. See src/updater.js.
+// ---------------------------------------------------------------------------
+
+const DAY = 24 * 60 * 60 * 1000;
+
+function createUpdater() {
+  updater = new Updater({
+    app,
+    fetchImpl: (url, opts) => require('electron').net.fetch(url, opts),
+    repo: UPDATE_REPO,
+    cacheDir: path.join(app.getPath('userData'), 'updates'),
+  });
+  let lastKnown = null;
+  updater.on('state', (state) => {
+    if (updateWin && !updateWin.isDestroyed()) updateWin.webContents.send('update:state', state);
+    if (state.phase === 'idle' && state.latest !== lastKnown) { lastKnown = state.latest; rebuildMenus(); }
+  });
+}
+
+function scheduleUpdateChecks() {
+  const maybeCheck = async () => {
+    const s = readSettings();
+    if (s.autoUpdateCheck === false || !app.isPackaged) return;
+    if (Date.now() - (s.lastUpdateCheck || 0) < DAY) return;
+    const state = await updater.check();
+    writeSettings({ lastUpdateCheck: Date.now() });
+    // Tell the user once per new version; after that it waits in the menu.
+    if (state.available && readSettings().notifiedVersion !== state.latest) {
+      writeSettings({ notifiedVersion: state.latest });
+      if (Notification.isSupported()) {
+        const n = new Notification({ title: `Loupe ${state.latest} is available`, body: 'Click to see what\'s new and install it.', silent: true });
+        n.on('click', () => openUpdate());
+        n.show();
+      }
+    }
+  };
+  setTimeout(maybeCheck, 30 * 1000);
+  setInterval(maybeCheck, 60 * 60 * 1000);
+}
+
+/** After an update, say so once: the visible proof that installing worked. */
+function announceUpdate() {
+  const previous = readSettings().lastRunVersion;
+  const current = app.getVersion();
+  if (previous === current) return;
+  writeSettings({ lastRunVersion: current });
+  if (!previous || !app.isPackaged || !Notification.isSupported()) return;
+  const n = new Notification({ title: `Loupe updated to ${current}`, body: `You were on ${previous}. Click to see what's new.`, silent: true });
+  n.on('click', () => shell.openExternal(`https://github.com/${UPDATE_REPO}/releases/tag/v${current}`));
+  n.show();
+}
+
+function openUpdate(checkNow = false) {
+  if (!updateWin || updateWin.isDestroyed()) {
+    updateWin = new BrowserWindow({
+      width: 440, height: 300, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+      title: 'Loupe updates', backgroundColor: '#EEF1F4', show: false,
+      icon: path.join(__dirname, 'assets', 'icon.png'),
+      webPreferences: webPreferences(),
+    });
+    updateWin.setMenuBarVisibility(false);
+    updateWin.loadFile(path.join(__dirname, 'src', 'update.html'));
+    updateWin.once('ready-to-show', () => { if (!updateWin.isDestroyed()) updateWin.show(); });
+    updateWin.on('closed', () => { updateWin = null; });
+  } else {
+    updateWin.show();
+    updateWin.focus();
+  }
+  const after = () => { if (updater.state.available) updater.loadNotes(); };
+  if (checkNow || !updater.state.checkedAt) updater.check().then(() => { writeSettings({ lastUpdateCheck: Date.now() }); after(); });
+  else after();
 }
 
 function registerShortcuts() {
@@ -1126,6 +1311,7 @@ function senderWindow(event) { return BrowserWindow.fromWebContents(event.sender
 
 ipcMain.handle('app:info', () => ({
   platform: process.platform,
+  version: app.getVersion(),
   permission: screenPermission(),
   hotkeys: Object.fromEntries(Object.entries(HOTKEYS).map(([k, v]) => [k, { label: hotkeyLabel(v), ok: registeredKeys[k] !== false }])),
   printScreen: !!registeredKeys.printscreen,
@@ -1163,6 +1349,8 @@ ipcMain.handle('capture:window', () => captureWindow());
 ipcMain.handle('capture:fullscreen', () => captureFullscreen());
 ipcMain.handle('record:start', () => startRecording());
 ipcMain.handle('capture:text', () => captureText());
+ipcMain.handle('closing:get', () => ({ ...closingSettings(), choices: AUTO_CLOSE_CHOICES }));
+ipcMain.handle('closing:set', (e, patch) => setClosing(patch || {}));
 ipcMain.handle('timer:get', () => timerSettings());
 ipcMain.handle('timer:set', (e, action, on) => setTimer(action, on));
 ipcMain.handle('timer:seconds', (e, seconds) => setTimerSeconds(Number(seconds)));
@@ -1422,7 +1610,7 @@ ipcMain.handle('editor:config', (e) => {
 
 ipcMain.handle('editor:dirty', (e, dirty) => {
   const state = editors.get(e.sender.id);
-  if (state) state.dirty = !!dirty;
+  if (state) { state.dirty = !!dirty; if (state.dirty) stopIdleTimer(state); }
   const win = senderWindow(e);
   if (win && state) win.setTitle(`${dirty ? '• ' : ''}${path.basename(state.file)} — Loupe`);
 });
@@ -1455,10 +1643,16 @@ async function saveAs(event, buffer) {
   const state = editors.get(event.sender.id);
   const win = senderWindow(event);
   const defaultPath = state ? state.file.replace(/\.(png|jpe?g)$/i, '') + ' (edited).png' : 'Capture.png';
-  const res = await dialog.showSaveDialog(win, {
-    defaultPath,
-    filters: [{ name: 'PNG image', extensions: ['png'] }, { name: 'JPEG image', extensions: ['jpg'] }],
-  });
+  if (state) state.dialogOpen = true;
+  let res;
+  try {
+    res = await dialog.showSaveDialog(win, {
+      defaultPath,
+      filters: [{ name: 'PNG image', extensions: ['png'] }, { name: 'JPEG image', extensions: ['jpg'] }],
+    });
+  } finally {
+    if (state) state.dialogOpen = false;
+  }
   if (res.canceled || !res.filePath) return { ok: false };
   writeImage(res.filePath, buffer);
   if (state) {
@@ -1484,6 +1678,34 @@ ipcMain.handle('editor:save', async (e, buffer) => {
 ipcMain.handle('editor:saveAs', (e, buffer) => saveAs(e, buffer));
 
 ipcMain.handle('editor:copy', (e, buffer) => copyImageToClipboard(nativeImage.createFromBuffer(Buffer.from(buffer))));
+
+// The editor says the image is on the clipboard: close the window, unless that's switched off.
+// Unsaved changes still get the Save / Don't Save / Keep Editing question from the close handler.
+ipcMain.handle('editor:copied', (e) => {
+  if (!closingSettings().closeAfterCopy) return false;
+  const win = senderWindow(e);
+  if (win && !win.isDestroyed()) setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 120);
+  return true;
+});
+
+// The editor finished "Save and close".
+ipcMain.handle('editor:close', (e) => {
+  const state = editors.get(e.sender.id);
+  const win = senderWindow(e);
+  if (state) state.dirty = false;
+  if (win && !win.isDestroyed()) win.close();
+  return true;
+});
+
+ipcMain.handle('update:state', () => updater.state);
+ipcMain.handle('update:check', async () => { const st = await updater.check(); writeSettings({ lastUpdateCheck: Date.now() }); if (st.available) updater.loadNotes(); return updater.state; });
+ipcMain.handle('update:install', () => updater.install(() => { quitting = true; app.quit(); }));
+ipcMain.handle('update:cancel', () => { updater.cancel(); return true; });
+ipcMain.handle('update:release-page', () => shell.openExternal(updater.releaseUrl()));
+ipcMain.handle('update:auto', (e, on) => {
+  if (typeof on === 'boolean') writeSettings({ autoUpdateCheck: on });
+  return readSettings().autoUpdateCheck !== false;
+});
 
 // Text (OCR) ----------------------------------------------------------------
 
@@ -1752,11 +1974,13 @@ if (!app.requestSingleInstanceLock()) {
       applicationVersion: app.getVersion(),
       version: `Electron ${process.versions.electron}`,
     });
+    createUpdater();
     buildAppMenu();
     buildTray();
     registerShortcuts();
     createHome();
     libraryDir();
+    if (isMac) { scheduleUpdateChecks(); announceUpdate(); }
     // Open an image passed on the command line, e.g. `npm start -- path/to/image.png`
     const arg = process.argv.slice(app.isPackaged ? 1 : 2).find((a) => /\.(png|jpe?g)$/i.test(a));
     if (arg && fs.existsSync(arg)) openEditor(path.resolve(arg));
