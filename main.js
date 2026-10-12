@@ -66,6 +66,22 @@ const webPreferences = (extra = {}) => ({
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Windows that must float over full-screen apps (the capture overlay, the countdown, pinned
+// captures, the camera bubble). On macOS, Electron makes that work by turning Loupe into a
+// "UI element" process, which is also what hiding the Dock icon does, and it never turns it back
+// when the window closes. The visible symptom was the running dot under the Dock icon vanishing
+// after every capture. So count these windows and restore the Dock when the last one closes.
+let floatingOverFullscreen = 0;
+function floatOverFullscreen(win) {
+  if (!isMac) return;
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  floatingOverFullscreen++;
+  win.once('closed', () => {
+    floatingOverFullscreen = Math.max(0, floatingOverFullscreen - 1);
+    if (floatingOverFullscreen === 0 && app.dock && !quitting) Promise.resolve(app.dock.show()).catch(() => {});
+  });
+}
+
 // Settings live in a small JSON file in the app's user-data folder.
 function settingsFile() { return path.join(app.getPath('userData'), 'settings.json'); }
 
@@ -467,7 +483,7 @@ function runCountdown(seconds, display, rect) {
     win.setIgnoreMouseEvents(true);
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setContentProtection(true);
-    if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    floatOverFullscreen(win);
     const outline = rect ? makeOutline(display, rect) : null;
 
     let left = seconds;
@@ -597,7 +613,7 @@ function openOverlay(display) {
     webPreferences: webPreferences(),
   });
   overlayWin.setAlwaysOnTop(true, 'screen-saver');
-  if (isMac) overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  floatOverFullscreen(overlayWin);
   overlayWin.setBounds({ x, y, width, height });
   overlayWin.loadFile(path.join(__dirname, 'src', 'overlay.html'));
   const win = overlayWin;
@@ -826,7 +842,7 @@ function openPin(image) {
     webPreferences: webPreferences(),
   });
   win.setAlwaysOnTop(true, 'floating');
-  if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  floatOverFullscreen(win);
   win.setAspectRatio(w / h);
   const id = win.webContents.id;
   pins.set(id, { bytes: png, width, height, win, aspect: w / h });
@@ -875,7 +891,7 @@ async function openCamera(display, rect) {
     webPreferences: webPreferences({ backgroundThrottling: false }),
   });
   cameraWin.setAlwaysOnTop(true, 'screen-saver');
-  if (isMac) cameraWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  floatOverFullscreen(cameraWin);
   cameraWin.loadFile(path.join(__dirname, 'src', 'camera.html'));
   const cwin = cameraWin;
   cwin.once('ready-to-show', () => { if (!cwin.isDestroyed()) cwin.showInactive(); });
