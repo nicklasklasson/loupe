@@ -4,7 +4,8 @@ A desktop screen capture, annotation and screen recording tool, built with Elect
 
 ## Installing on a Mac
 
-You don't need Node.js, npm or a terminal to use Loupe. Download the installer, drag, done.
+Before you start (PaymentIQ Macs): request Administrator Mode in the PaymentIQ Self Service app. Actions like Copying to Applications, the xattr command, and later updates all need it.
+You don’t need Node.js or npm to use Loupe. Download the installer, drag it to Applications, and run one Terminal command the first time to get past the malware warning.
 
 1. Download `Loupe-<version>-universal.dmg` from the [Releases page](https://github.com/nicklasklasson/loupe/releases/latest). It runs on Apple Silicon and Intel Macs.
 2. Open the dmg and drag Loupe to Applications. On a PaymentIQ Mac this needs **Administrator Mode**: request it in the PaymentIQ Self Service app first.
