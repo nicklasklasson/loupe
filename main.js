@@ -1389,7 +1389,7 @@ ipcMain.handle('dock:set', (e, on) => {
 ipcMain.handle('closing:get', () => ({ ...closingSettings(), choices: AUTO_CLOSE_CHOICES }));
 ipcMain.handle('closing:set', (e, patch) => setClosing(patch || {}));
 ipcMain.handle('timer:get', () => timerSettings());
-ipcMain.handle('timer:set', (e, action, on) => setTimer(action, on));
+ipcMain.handle('timer:set', (e, action, on) => { if (action in TIMER_DEFAULTS) setTimer(action, on); return timerSettings(); });
 ipcMain.handle('timer:seconds', (e, seconds) => setTimerSeconds(Number(seconds)));
 ipcMain.handle('steps:start', () => startStepCapture());
 

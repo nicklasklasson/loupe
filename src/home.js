@@ -37,7 +37,7 @@ $('#paste').addEventListener('click', async () => {
 
 async function renderTimers() {
   const t = await api.invoke('timer:get');
-  document.querySelectorAll('.timer').forEach((row) => {
+  document.querySelectorAll('.timer[data-action]').forEach((row) => {
     const action = row.dataset.action;
     const box = row.querySelector('input');
     box.checked = !!t.timer[action];
@@ -49,7 +49,7 @@ async function renderTimers() {
   $('#timerSeconds').value = String(t.seconds);
 }
 
-document.querySelectorAll('.timer').forEach((row) => {
+document.querySelectorAll('.timer[data-action]').forEach((row) => {
   row.querySelector('input').addEventListener('change', (e) => api.invoke('timer:set', row.dataset.action, e.target.checked));
 });
 $('#timerSeconds').addEventListener('change', (e) => api.invoke('timer:seconds', Number(e.target.value)));
