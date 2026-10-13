@@ -68,6 +68,17 @@ Settings `closeAfterCopy` (default true) and `autoCloseSeconds` (0/30/120/600, d
   clean. Don't Save clears `dirty` and lets the close proceed. Quitting never asks (pre-existing).
 - `closeAllEditors()` closes each editor window through the same handler.
 
+## 0.3.2–0.3.3 additions
+
+- File › Close in the app menu gives ⌘W; `window:close` IPC + a ⌘/Ctrl+W handler in editor.js
+  covers menu-less platforms and the Dock-hidden case (an accessory app has no menu bar).
+- `showInDock` setting (default true, Mac): `applyDock()` at startup, on change, and when the last
+  floating window closes (replaces the plain `app.dock.show()` from 0.3.1). `app.focus({ steal: true })`
+  when showing the home window or a new editor, because an accessory app doesn't come forward on
+  its own.
+- `editor:discard`: clears dirty, bins the file when `state.owned`, closes. ⌘⌫ in the editor.
+- `library:copy`: copy from a tile.
+
 ## Permissions
 
 Screen Recording (captures), Accessibility (step capture's click hook), Camera and Microphone

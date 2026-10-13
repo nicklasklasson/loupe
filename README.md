@@ -21,6 +21,8 @@ You don’t need Node.js or npm to use Loupe. Download the installer, drag it to
 
 **Coming from 0.2.x?** Drag the new Loupe over the old one (Replace), do step 3, then open Screen Recording, select the old Loupe entry, remove it with the **−** button, and allow Loupe again when it asks (quit and reopen once). The setting looks switched on already, but that entry belongs to the old build. Same for Accessibility if you use step capture. This is a one-time thing: later versions arrive through Check for Updates… and keep the permissions.
 
+**Menu bar only.** On macOS, Loupe shows in the Dock by default. Switch off **Show Loupe in the Dock** at the bottom of the home window and it lives in the menu bar alone; the magnifying glass menu has everything, and `Cmd+W` still closes windows.
+
 ## Shortcuts
 
 | Action | Shortcut |
@@ -56,6 +58,8 @@ Every capture is saved as a PNG to your library folder, copied to your clipboard
 Annotations can go past the edge of the screenshot. You can even start drawing in the dark area around it, and the canvas grows to fit them, like in Snagit, so nothing is cut off. The extra area is transparent: it shows as a checkerboard in the editor, stays transparent when you copy or save as PNG, and becomes white in a JPEG. Cropping cuts through annotations that cross the crop edge.
 
 The editor also supports undo and redo (`Ctrl+Z`, `Ctrl+Shift+Z`) and zoom (`Ctrl+0` to fit, `Ctrl+1` for 100%, or `Ctrl` + mouse wheel). Hold `Space` and drag to pan. `Ctrl+C` copies the annotated image, `Ctrl+S` saves over the capture in the library, and `Ctrl+Shift+S` saves a PNG or JPEG anywhere. Opening an image from outside the library never overwrites it, because Save makes a copy.
+
+**Discard** in the editor (or `Cmd+Backspace`) moves the capture to the trash and closes the window, no questions asked. For an image opened from outside the library it only closes the window. While a capture has unsaved annotations, an **Edited** badge sits next to its name; Save turns into **Saved ✓** for a moment when it's done.
 
 **Capture windows close themselves.** Every capture is already in your library and on your clipboard, so an open capture window rarely needs to stay around:
 

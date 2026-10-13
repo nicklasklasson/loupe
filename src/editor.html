@@ -10,7 +10,7 @@
 <body data-tool="arrow">
   <header class="topbar">
     <div class="file">
-      <span class="name" id="fileName">Capture</span>
+      <div class="row"><span class="name" id="fileName">Capture</span><span class="edited" id="edited" hidden>Edited</span></div>
       <span class="dims" id="dims"></span>
     </div>
 
@@ -38,6 +38,7 @@
         <option value="1">100%</option>
         <option value="2">200%</option>
       </select>
+      <button class="quiet" id="discard" title="Move this capture to the Bin and close (Cmd+Backspace)">Discard</button>
       <button id="ocr" title="Copy the text in this image">Copy text</button>
       <button id="pin" title="Keep this image on top of other windows">Pin</button>
       <button id="copy" title="Copy image (Ctrl+C)">Copy</button>

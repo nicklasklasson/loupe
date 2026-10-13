@@ -515,7 +515,7 @@ function render() {
 function snapshot() { return { base, objects: clone(objects) }; }
 
 function markDirty() {
-  if (!dirty) { dirty = true; api.invoke('editor:dirty', true); }
+  if (!dirty) { dirty = true; api.invoke('editor:dirty', true); renderEdited(); }
 }
 
 function pushSnap(snap) {
@@ -1129,6 +1129,7 @@ window.addEventListener('keydown', (e) => {
     if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); return; }
     if (k === 's') { e.preventDefault(); save(e.shiftKey); return; }
     if (k === 'w') { e.preventDefault(); api.invoke('window:close'); return; } // menu-less platforms; on macOS File › Close does it
+    if (k === 'backspace' || k === 'delete') { if (!typing) { e.preventDefault(); discard(); } return; } // ⌘⌫ = move to Bin, like the Finder
     if (k === 'c' && !typing && !window.getSelection().toString()) { e.preventDefault(); copy(); return; }
     if (k === '0') { e.preventDefault(); setZoom('fit'); return; }
     if (k === '1') { e.preventDefault(); setZoom(1); return; }
@@ -1196,8 +1197,32 @@ async function save(as) {
     dirty = false;
     fileName = res.name;
     $('#fileName').textContent = res.name;
+    renderEdited();
     setStatus(`Saved ${res.name}`);
+    flashSaved();
   }
+}
+
+// The status line was too easy to miss: the Save button itself says so for a moment.
+let savedTimer = null;
+function flashSaved() {
+  const b = $('#save');
+  b.textContent = 'Saved ✓';
+  b.classList.add('saved');
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => { b.textContent = 'Save'; b.classList.remove('saved'); }, 2200);
+}
+
+// "Edited" next to the file name while there are unsaved changes.
+function renderEdited() {
+  $('#edited').hidden = !dirty;
+}
+
+// Discard: Bin the capture (if it's Loupe's own) and close, no questions.
+function discard() {
+  if (!base) return;
+  dirty = false;
+  api.invoke('editor:discard');
 }
 
 async function copy() {
@@ -1225,6 +1250,7 @@ api.on('editor:save-and-close', async () => {
 });
 
 $('#save').addEventListener('click', () => save(false));
+$('#discard').addEventListener('click', discard);
 $('#saveAs').addEventListener('click', () => save(true));
 $('#copy').addEventListener('click', copy);
 $('#pin').addEventListener('click', async () => {

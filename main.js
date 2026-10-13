@@ -78,7 +78,7 @@ function floatOverFullscreen(win) {
   floatingOverFullscreen++;
   win.once('closed', () => {
     floatingOverFullscreen = Math.max(0, floatingOverFullscreen - 1);
-    if (floatingOverFullscreen === 0 && app.dock && !quitting) Promise.resolve(app.dock.show()).catch(() => {});
+    if (floatingOverFullscreen === 0 && !quitting) applyDock();
   });
 }
 
@@ -128,6 +128,19 @@ function setClosing(patch) {
     if (!win.isFocused()) startIdleTimer(win, state);
   }
   return settings;
+}
+
+// Whether Loupe shows in the Dock (macOS). Off means it lives in the menu bar only, like a
+// utility; the magnifying glass menu still has everything. Personal choice, on by default.
+function showInDock() {
+  const s = readSettings();
+  return typeof s.showInDock === 'boolean' ? s.showInDock : true;
+}
+
+function applyDock() {
+  if (!isMac || !app.dock) return;
+  if (showInDock()) Promise.resolve(app.dock.show()).catch(() => {});
+  else app.dock.hide();
 }
 
 function stopIdleTimer(state) {
@@ -585,6 +598,7 @@ function showHome() {
   if (!homeWin || homeWin.isDestroyed()) createHome();
   homeWin.show();
   homeWin.focus();
+  if (isMac) app.focus({ steal: true }); // needed when Loupe is hidden from the Dock
 }
 
 function createHome() {
@@ -662,7 +676,7 @@ function openEditor(file, { copied = false } = {}) {
   win.setMenuBarVisibility(false);
   win.on('page-title-updated', (e) => e.preventDefault());
   win.loadFile(path.join(__dirname, 'src', 'editor.html'));
-  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); if (isMac) app.focus({ steal: true }); } });
   // Untouched windows close on their own after a while in the background; see closingSettings.
   win.on('blur', () => startIdleTimer(win, state));
   win.on('focus', () => stopIdleTimer(state));
@@ -1367,6 +1381,11 @@ ipcMain.handle('capture:window', () => captureWindow());
 ipcMain.handle('capture:fullscreen', () => captureFullscreen());
 ipcMain.handle('record:start', () => startRecording());
 ipcMain.handle('capture:text', () => captureText());
+ipcMain.handle('dock:get', () => ({ supported: isMac, showInDock: showInDock() }));
+ipcMain.handle('dock:set', (e, on) => {
+  if (typeof on === 'boolean') { writeSettings({ showInDock: on }); applyDock(); }
+  return showInDock();
+});
 ipcMain.handle('closing:get', () => ({ ...closingSettings(), choices: AUTO_CLOSE_CHOICES }));
 ipcMain.handle('closing:set', (e, patch) => setClosing(patch || {}));
 ipcMain.handle('timer:get', () => timerSettings());
@@ -1714,6 +1733,21 @@ ipcMain.handle('editor:copied', (e) => {
   return true;
 });
 
+// Discard: the capture goes to the Bin (when it's Loupe's own file) and the window closes
+// without the Save question. An image opened from elsewhere is left alone; only the window goes.
+ipcMain.handle('editor:discard', async (e) => {
+  const state = editors.get(e.sender.id);
+  const win = senderWindow(e);
+  if (!state) return false;
+  state.dirty = false;
+  stopIdleTimer(state);
+  if (state.owned && isInLibrary(state.file)) {
+    try { await shell.trashItem(state.file); notifyLibrary(); } catch (err) { console.warn('Discard failed', err); }
+  }
+  if (win && !win.isDestroyed()) win.close();
+  return true;
+});
+
 // The editor finished "Save and close".
 ipcMain.handle('editor:close', (e) => {
   const state = editors.get(e.sender.id);
@@ -2001,6 +2035,7 @@ if (!app.requestSingleInstanceLock()) {
       version: `Electron ${process.versions.electron}`,
     });
     createUpdater();
+    applyDock();
     buildAppMenu();
     buildTray();
     registerShortcuts();

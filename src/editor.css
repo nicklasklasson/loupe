@@ -20,6 +20,10 @@ body {
 .file { display: flex; flex-direction: column; min-width: 120px; max-width: 240px; }
 .file .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file .dims { color: var(--muted); font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+.file .row { display: flex; align-items: baseline; min-width: 0; }
+.file .edited { flex: none; margin-left: 8px; font-size: var(--step--1); color: var(--brass-ink); background: rgba(201,146,48,0.16); border-radius: 999px; padding: 1px 8px; }
+.file .edited[hidden] { display: none; }
+button#save.saved { background: #2E7D4F; border-color: #2E7D4F; }
 
 .props { display: flex; align-items: center; gap: 18px; flex: 1; min-width: 0; flex-wrap: wrap; }
 .prop { display: none; align-items: center; gap: 8px; color: var(--muted); white-space: nowrap; }

@@ -65,6 +65,8 @@ $('#closeAfterCopy').addEventListener('change', (e) => api.invoke('closing:set',
 $('#autoClose').addEventListener('change', (e) => api.invoke('closing:set', { autoCloseSeconds: Number(e.target.value) }));
 api.on('closing:changed', renderClosing);
 
+$('#showInDock').addEventListener('change', (e) => api.invoke('dock:set', e.target.checked));
+
 function showNotice(text) {
   const el = $('#notice');
   el.innerHTML = '';
@@ -212,6 +214,8 @@ async function init() {
   renderLibrary();
   renderTimers();
   renderClosing(await api.invoke('closing:get'));
+  const dock = await api.invoke('dock:get');
+  if (dock.supported) { $('#dockRow').hidden = false; $('#showInDock').checked = dock.showInDock; }
 }
 
 api.on('library:changed', renderLibrary);

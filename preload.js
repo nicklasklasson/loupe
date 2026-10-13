@@ -6,7 +6,7 @@ const INVOKE = new Set([
   'app:info', 'app:permissionHelp',
   'capture:region', 'capture:window', 'capture:fullscreen', 'capture:clipboard', 'capture:openFile',
   'record:start', 'capture:text', 'steps:start', 'timer:get', 'timer:set', 'timer:seconds',
-  'closing:get', 'closing:set',
+  'closing:get', 'closing:set', 'dock:get', 'dock:set',
   'update:state', 'update:check', 'update:install', 'update:cancel', 'update:release-page', 'update:auto',
   'text:config', 'text:copy', 'editor:ocr', 'editor:pin',
   'pin:config', 'pin:move', 'pin:zoom', 'pin:menu', 'pin:close',
@@ -19,7 +19,7 @@ const INVOKE = new Set([
   'overlay:config', 'overlay:done',
   'picker:config', 'picker:choose', 'picker:region', 'picker:cancel', 'sources:list',
   'recorder:config', 'recorder:save', 'recorder:close', 'recorder:error',
-  'editor:config', 'editor:dirty', 'editor:save', 'editor:saveAs', 'editor:copy', 'editor:copied', 'editor:close',
+  'editor:config', 'editor:dirty', 'editor:save', 'editor:saveAs', 'editor:copy', 'editor:copied', 'editor:close', 'editor:discard',
 ]);
 
 const EVENTS = new Set(['library:changed', 'steps:grab', 'steps:count', 'timer:changed', 'closing:changed', 'update:state', 'editor:save-and-close']);

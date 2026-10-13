@@ -59,7 +59,7 @@
 
   /* Closing capture windows */
   .closing { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-  .closing .timer.close-copy { margin: 0 6px 6px; }
+  .closing .timer.close-copy, .closing.dock .timer { margin: 0 6px 6px; }
   .closing .timerlen { margin-top: 6px; }
   .closing .fine { margin: 6px 6px 0; color: var(--muted); font-size: var(--step--1); line-height: 1.35; }
   .secondary { margin-top: auto; padding-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -164,6 +164,11 @@
         <option value="10">10 seconds</option>
       </select>
     </label>
+
+    <div class="closing dock" id="dockRow" hidden>
+      <label class="timer"><input type="checkbox" role="switch" id="showInDock"><span class="track" aria-hidden="true"></span><span class="tlabel">Show Loupe in the Dock</span></label>
+      <p class="fine">Off means Loupe lives in the menu bar only; the magnifying glass menu has everything.</p>
+    </div>
 
     <div class="closing">
       <label class="timer close-copy"><input type="checkbox" role="switch" id="closeAfterCopy"><span class="track" aria-hidden="true"></span><span class="tlabel">Close capture after Copy</span></label>
